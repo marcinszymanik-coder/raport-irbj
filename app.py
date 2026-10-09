@@ -68,10 +68,10 @@ img_wyniki = st.file_uploader("Dodaj grafiki (Wyniki Wyszukiwania i AI)", type=[
 st.markdown("---")
 
 # --- SEKCJA 4 ---
-st.markdown("#### 4. Inne źródła (Media Społecznościowe)")
+st.markdown("#### 4. Media społecznościowe")
 desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje dodatkowy zasięg wygenerowany poprzez media społecznościowe, ze szczególnym uwzględnieniem Facebooka. Pokazuje ono skuteczność komunikacji w przyciąganiu uwagi poza głównym portalem.", height=70)
 fb_zasieg = st.text_input("Zasięgi na FB:", "ponad 160 000 wyświetleń")
-img_inne = st.file_uploader("Dodaj grafiki (Social Media / FB)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
+img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe) - automatyczny układ 2 kolumn", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -152,8 +152,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     pdf.ln(12) 
     
     # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
-    def add_section_with_images(title, description, data_dict, uploaded_files):
-        # Filtrowanie pustych danych - jeśli wiersz jest pusty, zostanie usunięty ze słownika
+    def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
+        # Filtrowanie pustych danych
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
         if pdf.get_y() > 220:
@@ -173,7 +173,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.multi_cell(186, 6, description.strip(), align='L')
             pdf.ln(2)
         
-        # Wiersze z danymi (tylko te, które zostały uzupełnione)
+        # Wiersze z danymi
         if filtered_data:
             pdf.set_fill_color(252, 252, 252)
             pdf.set_draw_color(230, 230, 230)
@@ -189,34 +189,87 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         
         # Wyświetlanie załączonych obrazków
         if uploaded_files:
-            for file in uploaded_files:
-                try:
-                    img = Image.open(file)
-                    img = img.convert('RGB')
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
-                        img.save(tmpfile.name, "JPEG")
-                        temp_path = tmpfile.name
-                    
-                    max_w = 170
-                    max_h = 220
-                    img_w, img_h = img.size
-                    ratio = img_h / img_w
-                    
-                    calc_w = max_w
-                    calc_h = calc_w * ratio
-                    
-                    if calc_h > max_h:
-                        calc_h = max_h
-                        calc_w = calc_h / ratio
+            if not two_columns:
+                # Klasyczny układ - jeden duży obrazek na wiersz
+                for file in uploaded_files:
+                    try:
+                        img = Image.open(file)
+                        img = img.convert('RGB')
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
+                            img.save(tmpfile.name, "JPEG")
+                            temp_path = tmpfile.name
                         
-                    if pdf.get_y() + calc_h > 260:
-                        pdf.add_page()
+                        max_w, max_h = 170, 220
+                        img_w, img_h = img.size
+                        ratio = img_h / img_w
                         
-                    x_pos = (210 - calc_w) / 2
-                    pdf.image(temp_path, x=x_pos, w=calc_w, h=calc_h)
-                    pdf.ln(8)
-                except Exception as e:
-                    pass
+                        calc_w = max_w
+                        calc_h = calc_w * ratio
+                        
+                        if calc_h > max_h:
+                            calc_h = max_h
+                            calc_w = calc_h / ratio
+                            
+                        if pdf.get_y() + calc_h > 260:
+                            pdf.add_page()
+                            
+                        x_pos = (210 - calc_w) / 2
+                        pdf.image(temp_path, x=x_pos, w=calc_w, h=calc_h)
+                        pdf.set_y(pdf.get_y() + calc_h + 8)
+                    except Exception as e:
+                        pass
+            else:
+                # Układ dwukolumnowy
+                for i in range(0, len(uploaded_files), 2):
+                    try:
+                        file1 = uploaded_files[i]
+                        file2 = uploaded_files[i+1] if i+1 < len(uploaded_files) else None
+                        
+                        def process_img(f):
+                            img = Image.open(f).convert('RGB')
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
+                                img.save(tmpfile.name, "JPEG")
+                                return tmpfile.name, img.size
+                        
+                        path1, (w1, h1) = process_img(file1)
+                        
+                        max_w_col = 80
+                        max_h_col = 150
+                        
+                        calc_w1 = max_w_col
+                        calc_h1 = calc_w1 * (h1 / w1)
+                        if calc_h1 > max_h_col:
+                            calc_h1 = max_h_col
+                            calc_w1 = calc_h1 / (h1 / w1)
+                            
+                        calc_h2 = 0
+                        if file2:
+                            path2, (w2, h2) = process_img(file2)
+                            calc_w2 = max_w_col
+                            calc_h2 = calc_w2 * (h2 / w2)
+                            if calc_h2 > max_h_col:
+                                calc_h2 = max_h_col
+                                calc_w2 = calc_h2 / (h2 / w2)
+                        
+                        row_h = max(calc_h1, calc_h2)
+                        
+                        if pdf.get_y() + row_h > 260:
+                            pdf.add_page()
+                            
+                        current_y = pdf.get_y()
+                        
+                        # Lewa kolumna (środek lewej połowy strony to 52.5)
+                        x_pos1 = 52.5 - (calc_w1 / 2)
+                        pdf.image(path1, x=x_pos1, y=current_y, w=calc_w1, h=calc_h1)
+                        
+                        # Prawa kolumna (środek prawej połowy strony to 157.5)
+                        if file2:
+                            x_pos2 = 157.5 - (calc_w2 / 2)
+                            pdf.image(path2, x=x_pos2, y=current_y, w=calc_w2, h=calc_h2)
+                            
+                        pdf.set_y(current_y + row_h + 8)
+                    except Exception as e:
+                        pass
         pdf.ln(5)
 
     add_section_with_images("Portal Produkty i Firmy", desc_portal, {
@@ -237,9 +290,10 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Generatywna AI": g_ai
     }, img_wyniki)
     
-    add_section_with_images("Inne źródła (Media Społecznościowe)", desc_inne, {
+    # Przełącznik two_columns=True włączony dla ostatniej sekcji
+    add_section_with_images("Media społecznościowe", desc_inne, {
         "Zasięgi na FB": fb_zasieg
-    }, img_inne)
+    }, img_inne, two_columns=True)
 
     try:
         pdf_bytes = bytes(pdf.output())
