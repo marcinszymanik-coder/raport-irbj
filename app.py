@@ -33,15 +33,18 @@ with col_firma3:
 
 st.markdown("---")
 st.subheader("Wprowadź dane, opisy i grafiki dla poszczególnych sekcji")
-st.caption("Każda sekcja posiada domyślny opis wyjaśniający, który możesz dowolnie edytować.")
+st.caption("Każda sekcja posiada domyślny opis, który możesz edytować. **Puste pola nie pojawią się w raporcie.**")
 
 # --- SEKCJA 1 ---
 st.markdown("#### 1. Portal Produkty i Firmy")
 desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają aktywność użytkowników bezpośrednio na portalu Produkty i Firmy. Ukazują one liczbę interakcji (zdarzeń) oraz ogólny poziom zaangażowania w opublikowane treści.", height=70)
-col1a, col1b, col1c = st.columns(3)
+col1a, col1b = st.columns(2)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", "46 963")
 odslony = col1b.text_input("Odsłony (Portal):", "14 097")
+
+col1c, col1d = st.columns(2)
 zaangazowanie = col1c.text_input("Zaangażowanie:", "99,53%")
+zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", "1000")
 img_portal = st.file_uploader("Dodaj grafiki (Portal Produkty i Firmy)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 st.markdown("---")
 
@@ -66,10 +69,8 @@ st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Inne źródła (Media Społecznościowe)")
-desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje dodatkowy zasięg wygenerowany poprzez media społecznościowe, ze szczególnym uwzględnieniem Facebooka. Pokazuje ono skuteczność zajawek artykułu w przyciąganiu uwagi poza głównym portalem.", height=70)
-col4a, col4b = st.columns(2)
-zajawka = col4a.text_input("Wyświetlenia zajawki o artykule:", "1000")
-fb_zasieg = col4b.text_input("Zasięgi na FB:", "ponad 160 000 wyświetleń")
+desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje dodatkowy zasięg wygenerowany poprzez media społecznościowe, ze szczególnym uwzględnieniem Facebooka. Pokazuje ono skuteczność komunikacji w przyciąganiu uwagi poza głównym portalem.", height=70)
+fb_zasieg = st.text_input("Zasięgi na FB:", "ponad 160 000 wyświetleń")
 img_inne = st.file_uploader("Dodaj grafiki (Social Media / FB)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -152,6 +153,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     
     # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, description, data_dict, uploaded_files):
+        # Filtrowanie pustych danych - jeśli wiersz jest pusty, zostanie usunięty ze słownika
+        filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
+
         if pdf.get_y() > 220:
             pdf.add_page()
             
@@ -165,23 +169,23 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         if description.strip():
             pdf.set_font('DejaVu', '', 10)
             pdf.set_text_color(100, 100, 100)
-            # Dodajemy delikatny lewy margines i rysujemy tekst
             pdf.set_x(12)
             pdf.multi_cell(186, 6, description.strip(), align='L')
             pdf.ln(2)
         
-        # Wiersze z danymi
-        pdf.set_fill_color(252, 252, 252)
-        pdf.set_draw_color(230, 230, 230)
-        pdf.set_line_width(0.2)
-        pdf.set_text_color(70, 70, 70)
-        
-        for label, value in data_dict.items():
-            pdf.set_font('DejaVu', '', 11)
-            pdf.cell(120, 10, f"   {label}", border='B', fill=True)
-            pdf.set_font('DejaVu', 'B', 11)
-            pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
-        pdf.ln(5)
+        # Wiersze z danymi (tylko te, które zostały uzupełnione)
+        if filtered_data:
+            pdf.set_fill_color(252, 252, 252)
+            pdf.set_draw_color(230, 230, 230)
+            pdf.set_line_width(0.2)
+            pdf.set_text_color(70, 70, 70)
+            
+            for label, value in filtered_data.items():
+                pdf.set_font('DejaVu', '', 11)
+                pdf.cell(120, 10, f"   {label}", border='B', fill=True)
+                pdf.set_font('DejaVu', 'B', 11)
+                pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
+            pdf.ln(5)
         
         # Wyświetlanie załączonych obrazków
         if uploaded_files:
@@ -218,7 +222,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     add_section_with_images("Portal Produkty i Firmy", desc_portal, {
         "Liczba zdarzeń na portalu": zdarzenia,
         "Odsłony": odslony,
-        "Zaangażowanie": zaangazowanie
+        "Zaangażowanie": zaangazowanie,
+        "Liczba wyświetleń zajawki o artykule": zajawka
     }, img_portal)
     
     add_section_with_images("Google Discover", desc_disc, {
@@ -233,7 +238,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     }, img_wyniki)
     
     add_section_with_images("Inne źródła (Media Społecznościowe)", desc_inne, {
-        "Liczba wyświetleń zajawki o artykule": zajawka,
         "Zasięgi na FB": fb_zasieg
     }, img_inne)
 
