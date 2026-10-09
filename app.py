@@ -38,10 +38,13 @@ for k in keys_to_init:
 
 # --- FUNKCJE POMOCNICZE DO PARSOWANIA PDF ---
 # Liczba: grupy tysięcy dokładnie po 3 cyfry (np. "14 051", "1 418"), przecinek, opcjonalnie %
-NUM = r"(\d{1,3}(?:[ \u00a0]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?)(?!\.)"
+NUM_CORE = r"(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?)"
+NUM = r"(" + NUM_CORE + r")(?!\.)"   # z zabezpieczeniem przed numeracją "1."
+
 # Miesiąc z ewentualnymi spacjami między literami (PyPDF2 robi np. "pa ź")
 MONTH = r"[^\W\d_](?:\s*[^\W\d_]){2,8}"
-DATE = rf"\d{{1,2}}\s+{MONTH}\s+\d{{4}}\s*[-–—]\s*\d{{1,2}}\s+{MONTH}\s+\d{{4}}"
+DATE = (r"\d{1,2}\s+" + MONTH + r"\s+\d{4}\s*[-–—]\s*"
+        r"\d{1,2}\s+" + MONTH + r"\s+\d{4}")
 
 
 def label_re(label):
@@ -56,13 +59,14 @@ def get_value(text, label):
 
 def get_period(text):
     # 1) data sklejona z wartością GA4: "14 0511 sty 2026 - 8 pa ź  2026"
-    m = re.search(label_re("Odsłony z GA4") + r"\s*" + NUM[:-4] + rf"({DATE})", text, re.IGNORECASE)
-    # 2) zwykła data (np. gdy nie jest sklejona z liczbą)
+    m = re.search(label_re("Odsłony z GA4") + r"\s*" + NUM_CORE + r"(?P<d>" + DATE + r")",
+                  text, re.IGNORECASE)
+    # 2) zwykła data (gdy nie jest sklejona z liczbą)
     if not m:
-        m = re.search(rf"(?<!\d)({DATE})", text, re.IGNORECASE)
+        m = re.search(r"(?<!\d)(?P<d>" + DATE + r")", text, re.IGNORECASE)
     if not m:
         return ""
-    d = m.group(m.lastindex)
+    d = m.group("d")
     # usuń spacje wewnątrz nazw miesięcy ("pa ź" -> "paź")
     d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)
     d = re.sub(r"\s*[-–—]\s*", " - ", d)
