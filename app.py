@@ -22,8 +22,13 @@ else:
 
 st.markdown("### Generator Raportów Zasięgowych")
 
-# Pole dla nazwy firmy (zajmuje główną część)
-firma = st.text_input("Raport wygenerowany dla (nazwa firmy):", "Wpisz nazwę firmy...", help="Ta nazwa pojawi się na stronie tytułowej dokumentu.")
+# Sekcja dla klienta
+col_firma1, col_firma2 = st.columns(2)
+with col_firma1:
+    firma = st.text_input("Raport wygenerowany dla (nazwa firmy):", "Wpisz nazwę firmy...")
+with col_firma2:
+    logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
+
 st.markdown("---")
 
 st.subheader("Wprowadź dane i grafiki dla poszczególnych sekcji")
@@ -79,13 +84,13 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             # Tytuł na dokumencie
             self.set_y(18)
             self.set_font('DejaVu', 'B', 20)
-            self.set_text_color(94, 66, 88)
+            self.set_text_color(94, 66, 88) # Fiolet z logo
             self.cell(0, 10, "RAPORT Z KAMPANII", border=0, ln=1, align='R')
             
             self.set_font('DejaVu', '', 11)
             self.set_text_color(120, 120, 120)
             self.cell(0, 6, "Zasięgi i statystyki", border=0, ln=1, align='R')
-            self.ln(12)
+            self.ln(15)
 
         def footer(self):
             self.set_y(-30)
@@ -116,23 +121,57 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         
     pdf.add_page()
     
-    # --- Elegancka ramka z nazwą firmy na pierwszej stronie ---
-    pdf.set_fill_color(248, 248, 250)
-    pdf.set_draw_color(94, 66, 88)
-    pdf.set_line_width(0.5)
+    # --- NOWA, ELEGANCKA SEKCJA "PRZYGOTOWANO DLA" ---
+    start_y = pdf.get_y()
     
-    pdf.set_font('DejaVu', '', 11)
-    pdf.set_text_color(80, 80, 80)
-    pdf.cell(0, 7, "  Przygotowano dla:", border='LTR', ln=1, align='L', fill=True)
+    # Subtelna pionowa pomarańczowa linia akcentująca
+    pdf.set_draw_color(255, 160, 0)
+    pdf.set_line_width(0.8)
+    pdf.line(15, start_y, 15, start_y + 14)
     
-    pdf.set_font('DejaVu', 'B', 15)
+    # Etykieta
+    pdf.set_xy(18, start_y)
+    pdf.set_font('DejaVu', '', 10)
+    pdf.set_text_color(140, 140, 140)
+    pdf.cell(100, 5, "PRZYGOTOWANO DLA:", ln=1)
+    
+    # Nazwa firmy
+    pdf.set_xy(18, start_y + 6)
+    pdf.set_font('DejaVu', 'B', 16)
     pdf.set_text_color(40, 40, 40)
-    pdf.cell(0, 10, f"  {firma}", border='LBR', ln=1, align='L', fill=True)
-    pdf.ln(10)
+    pdf.cell(100, 8, firma, ln=1)
+    
+    # Wstawianie logo klienta po prawej stronie
+    if logo_klienta:
+        try:
+            img = Image.open(logo_klienta)
+            # Zapisz jako PNG, aby zachować przezroczystość logo
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                img.save(tmpfile.name, "PNG")
+                client_logo_path = tmpfile.name
+            
+            # Obliczanie proporcji, max szerokość 50, max wysokość 18
+            max_w, max_h = 50, 18
+            img_w, img_h = img.size
+            ratio = img_h / img_w
+            
+            calc_w = max_w
+            calc_h = calc_w * ratio
+            
+            if calc_h > max_h:
+                calc_h = max_h
+                calc_w = calc_h / ratio
+                
+            # Wyrównanie do prawej strony (210mm - margines 15mm - szerokość obrazka)
+            logo_x = 195 - calc_w
+            pdf.image(client_logo_path, x=logo_x, y=start_y - 2, w=calc_w, h=calc_h)
+        except Exception as e:
+            pass
+
+    pdf.set_y(start_y + 25)
     
     # --- Funkcja pomocnicza budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, data_dict, uploaded_files):
-        # Sprawdzanie czy mamy miejsce na nagłówek tabeli
         if pdf.get_y() > 220:
             pdf.add_page()
             
@@ -155,7 +194,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
         pdf.ln(5)
         
-        # Wyświetlanie załączonych obrazków dla tej konkretnej sekcji
+        # Wyświetlanie załączonych obrazków
         if uploaded_files:
             for file in uploaded_files:
                 try:
@@ -165,7 +204,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                         img.save(tmpfile.name, "JPEG")
                         temp_path = tmpfile.name
                     
-                    # Automatyczne skalowanie i centrowanie obrazka
                     max_w = 170
                     max_h = 220
                     img_w, img_h = img.size
