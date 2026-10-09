@@ -37,50 +37,36 @@ for k in keys_to_init:
 
 
 # --- FUNKCJE POMOCNICZE DO PARSOWANIA PDF ---
-NUM_RE = r"\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?"
+# Liczba: grupy tysięcy dokładnie po 3 cyfry (np. "14 051", "1 418"), przecinek, opcjonalnie %
+NUM = r"(\d{1,3}(?:[ \u00a0]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?)(?!\.)"
+# Miesiąc z ewentualnymi spacjami między literami (PyPDF2 robi np. "pa ź")
+MONTH = r"[^\W\d_](?:\s*[^\W\d_]){2,8}"
+DATE = rf"\d{{1,2}}\s+{MONTH}\s+\d{{4}}\s*[-–—]\s*\d{{1,2}}\s+{MONTH}\s+\d{{4}}"
 
 
-def norm(s):
-    """Małe litery, bez polskich znaków i zbędnych spacji."""
-    s = s.replace("ł", "l").replace("Ł", "L")
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    return re.sub(r"\s+", " ", s).lower().strip()
+def label_re(label):
+    """Etykieta, w której między znakami mogą być dowolne białe znaki."""
+    return r"\s*".join(re.escape(c) for c in label if not c.isspace())
 
 
-def clean_num(s):
-    return re.sub(r"[\u00a0\u202f]", " ", s).strip()
+def get_value(text, label):
+    m = re.search(label_re(label) + r"\s*" + NUM, text, re.IGNORECASE)
+    return m.group(1).replace("\u00a0", " ").strip() if m else ""
 
 
-def find_tile_value(lines, nlines, label):
-    """
-    Szuka wartości kafelka dla etykiety. Sprawdza kolejno:
-    1) tę samą linię ("Zdarzenia 46 829"),
-    2) następną linię,
-    3) poprzednią linię (gdyby PDF zwrócił wartość przed etykietą).
-    Etykieta musi być dopasowana do CAŁEJ linii (nagłówki tabeli
-    rozbite na kilka linii nie pasują).
-    """
-    target = norm(label)
-    for i, nl in enumerate(nlines):
-        # 1) ta sama linia
-        if nl.startswith(target + " "):
-            rest = lines[i][len(label):].strip() if lines[i].lower().startswith(label.lower()) else lines[i].split(None, len(label.split()))[-1]
-            m = re.fullmatch(NUM_RE, clean_num(rest))
-            if m:
-                return clean_num(rest)
-        if nl == target:
-            # 2) następna linia
-            if i + 1 < len(lines):
-                nxt = clean_num(lines[i + 1])
-                if re.fullmatch(NUM_RE, nxt):
-                    return nxt
-            # 3) poprzednia linia
-            if i > 0:
-                prv = clean_num(lines[i - 1])
-                if re.fullmatch(NUM_RE, prv):
-                    return prv
-    return ""
+def get_period(text):
+    # 1) data sklejona z wartością GA4: "14 0511 sty 2026 - 8 pa ź  2026"
+    m = re.search(label_re("Odsłony z GA4") + r"\s*" + NUM[:-4] + rf"({DATE})", text, re.IGNORECASE)
+    # 2) zwykła data (np. gdy nie jest sklejona z liczbą)
+    if not m:
+        m = re.search(rf"(?<!\d)({DATE})", text, re.IGNORECASE)
+    if not m:
+        return ""
+    d = m.group(m.lastindex)
+    # usuń spacje wewnątrz nazw miesięcy ("pa ź" -> "paź")
+    d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)
+    d = re.sub(r"\s*[-–—]\s*", " - ", d)
+    return re.sub(r"\s+", " ", d).strip()
 
 
 # --- AUTOMATYCZNE ZACZYTYWANIE Z PDF ---
@@ -99,20 +85,13 @@ if uploaded_ga_pdf is not None:
             st.text_area("Surowy tekst z PDF", text, height=300)
 
         if not st.session_state.get(f'processed_{uploaded_ga_pdf.name}', False):
-            lines = [l.strip() for l in text.splitlines() if l.strip()]
-            nlines = [norm(l) for l in lines]
-
-            # Firma
-            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
+            firma_match = re.search(r'Produkty\s*i\s*Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
             if firma_match:
                 st.session_state.firma = firma_match.group(1).strip()
 
-            # Okres (np. 1 sty 2026 - 8 paź 2026)
-            date_match = re.search(
-                r'(\d{1,2}\s+[^\W\d_]{3,9}\.?\s+\d{4}\s*[-–—]\s*\d{1,2}\s+[^\W\d_]{3,9}\.?\s+\d{4})',
-                text)
-            if date_match:
-                st.session_state.okres = re.sub(r"\s+", " ", date_match.group(1)).strip()
+            okres_val = get_period(text)
+            if okres_val:
+                st.session_state.okres = okres_val
 
             mapa = {
                 "zdarzenia":        "Zdarzenia",
@@ -125,7 +104,7 @@ if uploaded_ga_pdf is not None:
             }
             brak = []
             for key, label in mapa.items():
-                val = find_tile_value(lines, nlines, label)
+                val = get_value(text, label)
                 if val:
                     st.session_state[key] = val
                 else:
