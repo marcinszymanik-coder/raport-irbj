@@ -33,11 +33,11 @@ with col_firma3:
 
 st.markdown("---")
 st.subheader("Wprowadź dane, opisy i grafiki dla poszczególnych sekcji")
-st.caption("Każda sekcja posiada domyślny opis, który możesz edytować. **Puste pola nie pojawią się w raporcie.**")
+st.caption("Każda sekcja posiada domyślny, krótki opis, który możesz edytować. Puste pola nie pojawią się w raporcie.")
 
 # --- SEKCJA 1 ---
 st.markdown("#### 1. Portal Produkty i Firmy")
-desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają aktywność użytkowników bezpośrednio na portalu Produkty i Firmy. Ukazują one liczbę interakcji (zdarzeń) oraz ogólny poziom zaangażowania w opublikowane treści.", height=70)
+desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.", height=70)
 col1a, col1b = st.columns(2)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", "46 963")
 odslony = col1b.text_input("Odsłony (Portal):", "14 097")
@@ -50,7 +50,7 @@ st.markdown("---")
 
 # --- SEKCJA 2 ---
 st.markdown("#### 2. Google Discover")
-desc_disc = st.text_area("Opis sekcji (Discover):", "Poniższe dane pokazują widoczność artykułu w spersonalizowanym kanale Google Discover na urządzeniach mobilnych. Wysoka liczba kliknięć świadczy o trafnym dopasowaniu treści do zainteresowań czytelników.", height=70)
+desc_disc = st.text_area("Opis sekcji (Discover):", "Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.", height=70)
 col2a, col2b = st.columns(2)
 g_disc_odslony = col2a.text_input("Google Discover - odsłony:", "44 733")
 g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", "696")
@@ -59,7 +59,7 @@ st.markdown("---")
 
 # --- SEKCJA 3 ---
 st.markdown("#### 3. Wyniki wyszukiwania w wyszukiwarce Google")
-desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", "Prezentowane wyniki obrazują zasięg organiczny materiałów w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI. Odzwierciedlają one, jak często użytkownicy poszukiwali informacji powiązanych z marką.", height=70)
+desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", "Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.", height=70)
 col3a, col3b, col3c = st.columns(3)
 g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", "152 936")
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", "1418")
@@ -69,7 +69,7 @@ st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Media społecznościowe")
-desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje dodatkowy zasięg wygenerowany poprzez media społecznościowe, ze szczególnym uwzględnieniem Facebooka. Pokazuje ono skuteczność komunikacji w przyciąganiu uwagi poza głównym portalem.", height=70)
+desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70)
 fb_zasieg = st.text_input("Zasięgi na FB:", "ponad 160 000 wyświetleń")
 img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe) - automatyczny układ 2 kolumn", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
 
@@ -103,6 +103,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.multi_cell(0, 5, stopka, align='C')
             
     pdf = ReportPDF()
+    pdf.set_auto_page_break(auto=True, margin=35) # Ustawienie marginesu dolnego, aby ułatwić zarządzanie stronami
     
     if os.path.exists(font_file):
         pdf.add_font('DejaVu', '', font_file, uni=True)
@@ -153,10 +154,10 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     
     # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
-        # Filtrowanie pustych danych
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
-        if pdf.get_y() > 220:
+        # Sprawdzamy czy zmieści się przynajmniej nagłówek, opis i 2 wiersze danych (ok. 50mm)
+        if pdf.get_y() > 230:
             pdf.add_page()
             
         # Nagłówek sekcji
@@ -165,16 +166,24 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_font('DejaVu', 'B', 12)
         pdf.cell(0, 10, f"  {title}", ln=1, fill=True)
         
-        # Opis sekcji
+        # Opis sekcji - zwiększony odstęp od nagłówka
         if description.strip():
+            pdf.ln(3) # Odstęp
             pdf.set_font('DejaVu', '', 10)
             pdf.set_text_color(100, 100, 100)
             pdf.set_x(12)
-            pdf.multi_cell(186, 6, description.strip(), align='L')
-            pdf.ln(2)
+            pdf.multi_cell(186, 5, description.strip(), align='L')
+            pdf.ln(4) # Odstęp pod opisem
+        else:
+             pdf.ln(2)
         
         # Wiersze z danymi
         if filtered_data:
+            # Jeśli sama tabela nie zmieści się na stronie, przenieś ją
+            height_needed = len(filtered_data) * 10
+            if pdf.get_y() + height_needed > 260:
+                 pdf.add_page()
+                 
             pdf.set_fill_color(252, 252, 252)
             pdf.set_draw_color(230, 230, 230)
             pdf.set_line_width(0.2)
@@ -185,12 +194,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 pdf.cell(120, 10, f"   {label}", border='B', fill=True)
                 pdf.set_font('DejaVu', 'B', 11)
                 pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
-            pdf.ln(5)
+            pdf.ln(6)
         
         # Wyświetlanie załączonych obrazków
         if uploaded_files:
             if not two_columns:
-                # Klasyczny układ - jeden duży obrazek na wiersz
                 for file in uploaded_files:
                     try:
                         img = Image.open(file)
@@ -199,7 +207,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                             img.save(tmpfile.name, "JPEG")
                             temp_path = tmpfile.name
                         
-                        max_w, max_h = 170, 220
+                        max_w, max_h = 170, 200 # Zmniejszona max wysokość, aby lepiej się układało
                         img_w, img_h = img.size
                         ratio = img_h / img_w
                         
@@ -210,6 +218,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                             calc_h = max_h
                             calc_w = calc_h / ratio
                             
+                        # Sprawdź, czy obrazek zmieści się na obecnej stronie
                         if pdf.get_y() + calc_h > 260:
                             pdf.add_page()
                             
@@ -219,7 +228,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                     except Exception as e:
                         pass
             else:
-                # Układ dwukolumnowy
                 for i in range(0, len(uploaded_files), 2):
                     try:
                         file1 = uploaded_files[i]
@@ -258,11 +266,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                             
                         current_y = pdf.get_y()
                         
-                        # Lewa kolumna (środek lewej połowy strony to 52.5)
                         x_pos1 = 52.5 - (calc_w1 / 2)
                         pdf.image(path1, x=x_pos1, y=current_y, w=calc_w1, h=calc_h1)
                         
-                        # Prawa kolumna (środek prawej połowy strony to 157.5)
                         if file2:
                             x_pos2 = 157.5 - (calc_w2 / 2)
                             pdf.image(path2, x=x_pos2, y=current_y, w=calc_w2, h=calc_h2)
@@ -270,7 +276,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                         pdf.set_y(current_y + row_h + 8)
                     except Exception as e:
                         pass
-        pdf.ln(5)
+        # Dodatkowy odstęp na końcu całej sekcji przed kolejną
+        pdf.ln(6) 
 
     add_section_with_images("Portal Produkty i Firmy", desc_portal, {
         "Liczba zdarzeń na portalu": zdarzenia,
@@ -290,7 +297,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Generatywna AI": g_ai
     }, img_wyniki)
     
-    # Przełącznik two_columns=True włączony dla ostatniej sekcji
     add_section_with_images("Media społecznościowe", desc_inne, {
         "Zasięgi na FB": fb_zasieg
     }, img_inne, two_columns=True)
