@@ -3,6 +3,7 @@ from fpdf import FPDF
 import tempfile
 import os
 import re
+import unicodedata
 import PyPDF2
 from PIL import Image
 from streamlit_pdf_viewer import pdf_viewer
@@ -26,76 +27,122 @@ st.markdown("### Generator Raportów Zasięgowych")
 
 # Inicjalizacja pustych zmiennych sesyjnych
 keys_to_init = [
-    'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie', 
-    'zajawka', 'g_disc_odslony', 'g_disc_klik', 
+    'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie',
+    'zajawka', 'g_disc_odslony', 'g_disc_klik',
     'g_wyniki_odslony', 'g_wyniki_klik', 'g_ai', 'fb_zasieg'
 ]
 for k in keys_to_init:
     if k not in st.session_state:
         st.session_state[k] = ""
 
+
+# --- FUNKCJE POMOCNICZE DO PARSOWANIA PDF ---
+NUM_RE = r"\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?"
+
+
+def norm(s):
+    """Małe litery, bez polskich znaków i zbędnych spacji."""
+    s = s.replace("ł", "l").replace("Ł", "L")
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", s).lower().strip()
+
+
+def clean_num(s):
+    return re.sub(r"[\u00a0\u202f]", " ", s).strip()
+
+
+def find_tile_value(lines, nlines, label):
+    """
+    Szuka wartości kafelka dla etykiety. Sprawdza kolejno:
+    1) tę samą linię ("Zdarzenia 46 829"),
+    2) następną linię,
+    3) poprzednią linię (gdyby PDF zwrócił wartość przed etykietą).
+    Etykieta musi być dopasowana do CAŁEJ linii (nagłówki tabeli
+    rozbite na kilka linii nie pasują).
+    """
+    target = norm(label)
+    for i, nl in enumerate(nlines):
+        # 1) ta sama linia
+        if nl.startswith(target + " "):
+            rest = lines[i][len(label):].strip() if lines[i].lower().startswith(label.lower()) else lines[i].split(None, len(label.split()))[-1]
+            m = re.fullmatch(NUM_RE, clean_num(rest))
+            if m:
+                return clean_num(rest)
+        if nl == target:
+            # 2) następna linia
+            if i + 1 < len(lines):
+                nxt = clean_num(lines[i + 1])
+                if re.fullmatch(NUM_RE, nxt):
+                    return nxt
+            # 3) poprzednia linia
+            if i > 0:
+                prv = clean_num(lines[i - 1])
+                if re.fullmatch(NUM_RE, prv):
+                    return prv
+    return ""
+
+
 # --- AUTOMATYCZNE ZACZYTYWANIE Z PDF ---
 st.info("💡 Możesz zautomatyzować wpisywanie danych, wgrywając poniżej surowy raport PDF z Google Analytics. System sam wyciągnie z niego liczby i daty.")
 uploaded_ga_pdf = st.file_uploader("Wgraj raport PDF z Google Analytics (Opcjonalnie)", type=["pdf"])
+debug_pdf = st.checkbox("Pokaż surowy tekst wyciągnięty z PDF (diagnostyka)")
 
 if uploaded_ga_pdf is not None:
-    if not st.session_state.get(f'processed_{uploaded_ga_pdf.name}', False):
-        try:
-            reader = PyPDF2.PdfReader(uploaded_ga_pdf)
-            text = ""
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
-            
-            # Wyszukiwanie firmy na oryginalnym tekście
-            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
-            if firma_match: st.session_state.firma = firma_match.group(1).strip()
-            
-            # Wyszukiwanie daty (np. 1 sty 2026-8 paź 2026) na oryginalnym tekście
-            date_match = re.search(r'(\d{1,2}\s+[^\s\d]{3,9}\s+\d{4}\s*-\s*\d{1,2}\s+[^\s\d]{3,9}\s+\d{4})', text, re.IGNORECASE)
-            if date_match: st.session_state.okres = date_match.group(1).strip()
-            
-            # --- MEGA ODPORNE WYSZUKIWANIE LICZB ---
-            # Usuwamy WSZYSTKIE białe znaki, spacje i entery z całego PDF
-            clean_text = re.sub(r'\s+', '', text).lower()
-            
-            def get_num(pattern):
-                # Szukamy wzoru w sklejonym tekście
-                m = re.search(pattern, clean_text)
-                if m:
-                    num = m.group(1)
-                    # Formatuje tysiące ze spacją (np. 152936 -> 152 936) dla czytelności
-                    if num.isdigit() and len(num) >= 4:
-                        return f"{int(num):,}".replace(",", " ")
-                    return num
-                return ""
+    try:
+        reader = PyPDF2.PdfReader(uploaded_ga_pdf)
+        text = ""
+        for page in reader.pages:
+            text += (page.extract_text() or "") + "\n"
 
-            # Szukamy po fragmentach pozbawionych polskich liter
-            val = get_num(r'zdarzenia(\d+)')
-            if val: st.session_state.zdarzenia = val
-            
-            val = get_num(r'ga4(\d+)')
-            if val: st.session_state.odslony = val
-            
-            # Zaangażowanie zawiera znak %, łapiemy z przecinkiem
-            m_zaang = re.search(r'zaanga[^\d]*(\d+(?:,\d+)?%)', clean_text)
-            if m_zaang: st.session_state.zaangazowanie = m_zaang.group(1)
-            
-            val = get_num(r'ciazdiscover(\d+)')
-            if val: st.session_state.g_disc_klik = val
-            
-            val = get_num(r'onyzdiscover(\d+)')
-            if val: st.session_state.g_disc_odslony = val
-            
-            val = get_num(r'ciazgoogle(\d+)')
-            if val: st.session_state.g_wyniki_klik = val
-            
-            val = get_num(r'onyzgoogle(\d+)')
-            if val: st.session_state.g_wyniki_odslony = val
+        if debug_pdf:
+            st.text_area("Surowy tekst z PDF", text, height=300)
+
+        if not st.session_state.get(f'processed_{uploaded_ga_pdf.name}', False):
+            lines = [l.strip() for l in text.splitlines() if l.strip()]
+            nlines = [norm(l) for l in lines]
+
+            # Firma
+            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
+            if firma_match:
+                st.session_state.firma = firma_match.group(1).strip()
+
+            # Okres (np. 1 sty 2026 - 8 paź 2026)
+            date_match = re.search(
+                r'(\d{1,2}\s+[^\W\d_]{3,9}\.?\s+\d{4}\s*[-–—]\s*\d{1,2}\s+[^\W\d_]{3,9}\.?\s+\d{4})',
+                text)
+            if date_match:
+                st.session_state.okres = re.sub(r"\s+", " ", date_match.group(1)).strip()
+
+            mapa = {
+                "zdarzenia":        "Zdarzenia",
+                "odslony":          "Odsłony z GA4",
+                "zaangazowanie":    "Zaangażowanie",
+                "g_disc_klik":      "Kliknięcia z Discover",
+                "g_disc_odslony":   "Odsłony z Discover",
+                "g_wyniki_klik":    "Kliknięcia z Google",
+                "g_wyniki_odslony": "Odsłony z Google",
+            }
+            brak = []
+            for key, label in mapa.items():
+                val = find_tile_value(lines, nlines, label)
+                if val:
+                    st.session_state[key] = val
+                else:
+                    brak.append(label)
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
-            st.rerun() 
-        except Exception as e:
-            st.error(f"Wystąpił problem podczas odczytywania pliku: {e}")
+            if brak:
+                st.session_state["_brak_pdf"] = brak
+            else:
+                st.session_state.pop("_brak_pdf", None)
+            st.rerun()
+    except Exception as e:
+        st.error(f"Wystąpił problem podczas odczytywania pliku: {e}")
+
+if st.session_state.get("_brak_pdf"):
+    st.warning("Nie udało się odczytać: " + ", ".join(st.session_state["_brak_pdf"]) +
+               ". Zaznacz „Pokaż surowy tekst” i sprawdź, jak PDF zwraca te pola, albo wpisz je ręcznie.")
 
 st.markdown("---")
 
@@ -158,10 +205,10 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         def header(self):
             self.set_fill_color(255, 160, 0)
             self.rect(0, 0, 210, 6, 'F')
-            
+
             if os.path.exists(logo_png):
                 self.image(logo_png, x=15, y=10, w=50)
-            
+
             self.ln(20)
 
         def footer(self):
@@ -169,109 +216,112 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_draw_color(255, 160, 0)
             self.set_line_width(0.5)
             self.line(20, self.get_y(), 190, self.get_y())
-            
+
             self.set_y(-25)
-            self.set_font('DejaVu', '', 9)
+            self.set_font(FONT, '', 9)
             self.set_text_color(120, 120, 120)
             stopka = (
                 "AVT-Korporacja sp. z o.o. | Leszczynowa 11, 03-197 Warszawa\n"
                 "NIP: 5270200177 | KRS: 0000035930"
             )
             self.multi_cell(0, 5, stopka, align='C')
-            
+
             self.set_y(-15)
-            self.set_font('DejaVu', '', 8)
+            self.set_font(FONT, '', 8)
             self.cell(0, 5, f"Strona {self.page_no()}/{{nb}}", align='R')
-            
+
+    # Nazwa czcionki (fallback na Arial, gdy brak pliku DejaVu)
+    FONT = 'DejaVu' if os.path.exists(font_file) else 'Arial'
+
     pdf = ReportPDF()
-    pdf.alias_nb_pages() 
-    pdf.set_auto_page_break(auto=True, margin=35) 
-    
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(auto=True, margin=35)
+
     if os.path.exists(font_file):
         pdf.add_font('DejaVu', '', font_file, uni=True)
         pdf.add_font('DejaVu', 'B', font_file, uni=True)
-        pdf.set_font('DejaVu', '', 12)
+        pdf.set_font(FONT, '', 12)
     else:
         st.warning("Brak pliku DejaVuSans.ttf. Polskie znaki mogą nie działać prawidłowo.")
-        pdf.set_font('Arial', '', 12)
-        
+        pdf.set_font(FONT, '', 12)
+
     pdf.add_page()
-    
+
     # --- NAGŁÓWEK RAPORTU ---
-    pdf.set_y(35) 
-    
-    pdf.set_font('DejaVu', 'B', 20)
+    pdf.set_y(35)
+
+    pdf.set_font(FONT, 'B', 20)
     pdf.set_text_color(94, 66, 88)
     pdf.cell(120, 10, f"Raport kampanii dla {firma}", ln=1)
-    
+
     if okres:
-        pdf.set_font('DejaVu', '', 12)
+        pdf.set_font(FONT, '', 12)
         pdf.set_text_color(140, 140, 140)
         pdf.cell(120, 8, f"Okres: {okres}", ln=1)
-        
+
     if logo_klienta:
         try:
             img = Image.open(logo_klienta)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
                 img.save(tmpfile.name, "PNG")
                 client_logo_path = tmpfile.name
-            
+
             max_w, max_h = 50, 18
             img_w, img_h = img.size
             ratio = img_h / img_w
-            
+
             calc_w = max_w
             calc_h = calc_w * ratio
-            
+
             if calc_h > max_h:
                 calc_h = max_h
                 calc_w = calc_h / ratio
-                
+
             logo_x = 195 - calc_w
             pdf.image(client_logo_path, x=logo_x, y=35, w=calc_w, h=calc_h)
-        except Exception as e:
+        except Exception:
             pass
 
-    pdf.ln(12) 
-    
+    pdf.ln(12)
+
     def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
         if pdf.get_y() > 230:
             pdf.add_page()
-            
+
         pdf.set_fill_color(94, 66, 88)
         pdf.set_text_color(255, 255, 255)
-        pdf.set_font('DejaVu', 'B', 12)
+        pdf.set_font(FONT, 'B', 12)
         pdf.cell(0, 10, f"  {title}", ln=1, fill=True)
-        
+
         if description.strip():
-            pdf.ln(3) 
-            pdf.set_font('DejaVu', '', 10)
+            pdf.ln(3)
+            pdf.set_font(FONT, '', 10)
             pdf.set_text_color(100, 100, 100)
             pdf.set_x(12)
             pdf.multi_cell(186, 5, description.strip(), align='L')
-            pdf.ln(4) 
+            pdf.ln(4)
         else:
-             pdf.ln(2)
-        
+            pdf.ln(2)
+
         if filtered_data:
             height_needed = len(filtered_data) * 10
             if pdf.get_y() + height_needed > 260:
-                 pdf.add_page()
-                 
+                pdf.add_page()
+
             pdf.set_fill_color(252, 252, 252)
             pdf.set_draw_color(230, 230, 230)
             pdf.set_line_width(0.2)
             pdf.set_text_color(70, 70, 70)
-            
+
             for label, value in filtered_data.items():
-                pdf.set_font('DejaVu', '', 11)
+                pdf.set_font(FONT, '', 11)
                 pdf.cell(120, 10, f"   {label}", border='B', fill=True)
-                pdf.set_font('DejaVu', 'B', 11)
+                pdf.set_font(FONT, 'B', 11)
                 pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
             pdf.ln(6)
-        
+
         if uploaded_files:
             if not two_columns:
                 for file in uploaded_files:
@@ -281,49 +331,49 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                             img.save(tmpfile.name, "JPEG")
                             temp_path = tmpfile.name
-                        
-                        max_w, max_h = 170, 200 
+
+                        max_w, max_h = 170, 200
                         img_w, img_h = img.size
                         ratio = img_h / img_w
-                        
+
                         calc_w = max_w
                         calc_h = calc_w * ratio
-                        
+
                         if calc_h > max_h:
                             calc_h = max_h
                             calc_w = calc_h / ratio
-                            
+
                         if pdf.get_y() + calc_h > 260:
                             pdf.add_page()
-                            
+
                         x_pos = (210 - calc_w) / 2
                         pdf.image(temp_path, x=x_pos, w=calc_w, h=calc_h)
                         pdf.set_y(pdf.get_y() + calc_h + 8)
-                    except Exception as e:
+                    except Exception:
                         pass
             else:
                 for i in range(0, len(uploaded_files), 2):
                     try:
                         file1 = uploaded_files[i]
-                        file2 = uploaded_files[i+1] if i+1 < len(uploaded_files) else None
-                        
+                        file2 = uploaded_files[i + 1] if i + 1 < len(uploaded_files) else None
+
                         def process_img(f):
                             img = Image.open(f).convert('RGB')
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
                                 img.save(tmpfile.name, "JPEG")
                                 return tmpfile.name, img.size
-                        
+
                         path1, (w1, h1) = process_img(file1)
-                        
+
                         max_w_col = 80
                         max_h_col = 150
-                        
+
                         calc_w1 = max_w_col
                         calc_h1 = calc_w1 * (h1 / w1)
                         if calc_h1 > max_h_col:
                             calc_h1 = max_h_col
                             calc_w1 = calc_h1 / (h1 / w1)
-                            
+
                         calc_h2 = 0
                         if file2:
                             path2, (w2, h2) = process_img(file2)
@@ -332,25 +382,25 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                             if calc_h2 > max_h_col:
                                 calc_h2 = max_h_col
                                 calc_w2 = calc_h2 / (h2 / w2)
-                        
+
                         row_h = max(calc_h1, calc_h2)
-                        
+
                         if pdf.get_y() + row_h > 260:
                             pdf.add_page()
-                            
+
                         current_y = pdf.get_y()
-                        
+
                         x_pos1 = 52.5 - (calc_w1 / 2)
                         pdf.image(path1, x=x_pos1, y=current_y, w=calc_w1, h=calc_h1)
-                        
+
                         if file2:
                             x_pos2 = 157.5 - (calc_w2 / 2)
                             pdf.image(path2, x=x_pos2, y=current_y, w=calc_w2, h=calc_h2)
-                            
+
                         pdf.set_y(current_y + row_h + 8)
-                    except Exception as e:
+                    except Exception:
                         pass
-        pdf.ln(6) 
+        pdf.ln(6)
 
     add_section_with_images("Portal Produkty i Firmy", desc_portal, {
         "Liczba zdarzeń na portalu": zdarzenia,
@@ -358,18 +408,18 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Zaangażowanie": zaangazowanie,
         "Liczba wyświetleń zajawki o artykule": zajawka
     }, img_portal)
-    
+
     add_section_with_images("Google Discover", desc_disc, {
         "Odsłony": g_disc_odslony,
         "Kliknięcia": g_disc_klik
     }, img_disc)
-    
+
     add_section_with_images("Wyniki wyszukiwania w wyszukiwarce Google", desc_wyniki, {
         "Odsłony": g_wyniki_odslony,
         "Kliknięcia": g_wyniki_klik,
         "Generatywna AI": g_ai
     }, img_wyniki)
-    
+
     add_section_with_images("Media społecznościowe", desc_inne, {
         "Zasięgi na FB": fb_zasieg
     }, img_inne, two_columns=True)
@@ -377,12 +427,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     try:
         pdf_bytes = bytes(pdf.output())
         st.success("✨ Raport PDF został wygenerowany pomyślnie!")
-        
+
         st.markdown("### Podgląd raportu")
         pdf_viewer(input=pdf_bytes, width=700)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        
+
         st.download_button(
             label="Pobierz Raport PDF 📥",
             data=pdf_bytes,
