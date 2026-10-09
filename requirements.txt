@@ -3,3 +3,4 @@ fpdf2
 Pillow
 requests
 streamlit-pdf-viewer
+PyPDF2
