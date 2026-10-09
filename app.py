@@ -32,12 +32,12 @@ with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
 st.markdown("---")
-
-st.subheader("Wprowadź dane i grafiki dla poszczególnych sekcji")
-st.caption("Pod każdą sekcją możesz opcjonalnie wgrać dedykowane zrzuty ekranu, wykresy lub zdjęcia postów z FB.")
+st.subheader("Wprowadź dane, opisy i grafiki dla poszczególnych sekcji")
+st.caption("Każda sekcja posiada domyślny opis wyjaśniający, który możesz dowolnie edytować.")
 
 # --- SEKCJA 1 ---
 st.markdown("#### 1. Portal Produkty i Firmy")
+desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają aktywność użytkowników bezpośrednio na portalu Produkty i Firmy. Ukazują one liczbę interakcji (zdarzeń) oraz ogólny poziom zaangażowania w opublikowane treści.", height=70)
 col1a, col1b, col1c = st.columns(3)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", "46 963")
 odslony = col1b.text_input("Odsłony (Portal):", "14 097")
@@ -47,6 +47,7 @@ st.markdown("---")
 
 # --- SEKCJA 2 ---
 st.markdown("#### 2. Google Discover")
+desc_disc = st.text_area("Opis sekcji (Discover):", "Poniższe dane pokazują widoczność artykułu w spersonalizowanym kanale Google Discover na urządzeniach mobilnych. Wysoka liczba kliknięć świadczy o trafnym dopasowaniu treści do zainteresowań czytelników.", height=70)
 col2a, col2b = st.columns(2)
 g_disc_odslony = col2a.text_input("Google Discover - odsłony:", "44 733")
 g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", "696")
@@ -54,7 +55,8 @@ img_disc = st.file_uploader("Dodaj grafiki (Google Discover)", type=["png", "jpg
 st.markdown("---")
 
 # --- SEKCJA 3 ---
-st.markdown("#### 3. Google Wyniki Wyszukiwania")
+st.markdown("#### 3. Wyniki wyszukiwania w wyszukiwarce Google")
+desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", "Prezentowane wyniki obrazują zasięg organiczny materiałów w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI. Odzwierciedlają one, jak często użytkownicy poszukiwali informacji powiązanych z marką.", height=70)
 col3a, col3b, col3c = st.columns(3)
 g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", "152 936")
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", "1418")
@@ -64,6 +66,7 @@ st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Inne źródła (Media Społecznościowe)")
+desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje dodatkowy zasięg wygenerowany poprzez media społecznościowe, ze szczególnym uwzględnieniem Facebooka. Pokazuje ono skuteczność zajawek artykułu w przyciąganiu uwagi poza głównym portalem.", height=70)
 col4a, col4b = st.columns(2)
 zajawka = col4a.text_input("Wyświetlenia zajawki o artykule:", "1000")
 fb_zasieg = col4b.text_input("Zasięgi na FB:", "ponad 160 000 wyświetleń")
@@ -75,20 +78,16 @@ st.markdown("<br>", unsafe_allow_html=True)
 if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container_width=True):
     class ReportPDF(FPDF):
         def header(self):
-            # Pomarańczowy pasek dekoracyjny
             self.set_fill_color(255, 160, 0)
             self.rect(0, 0, 210, 6, 'F')
             
-            # Wstawienie logo "Produkty i Firmy" w lewym górnym rogu
             if os.path.exists(logo_png):
                 self.image(logo_png, x=15, y=10, w=50)
             
-            # Zostawiamy miejsce po logo
             self.ln(20)
 
         def footer(self):
             self.set_y(-30)
-            # Subtelna linia
             self.set_draw_color(255, 160, 0)
             self.set_line_width(0.5)
             self.line(20, self.get_y(), 190, self.get_y())
@@ -104,7 +103,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             
     pdf = ReportPDF()
     
-    # Wczytywanie czcionek
     if os.path.exists(font_file):
         pdf.add_font('DejaVu', '', font_file, uni=True)
         pdf.add_font('DejaVu', 'B', font_file, uni=True)
@@ -115,21 +113,18 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         
     pdf.add_page()
     
-    # --- NOWY, UPROSZCZONY NAGŁÓWEK RAPORTU ---
-    pdf.set_y(35) # Ustawienie pod logo
+    # --- NAGŁÓWEK RAPORTU ---
+    pdf.set_y(35) 
     
-    # Tytuł
     pdf.set_font('DejaVu', 'B', 20)
-    pdf.set_text_color(94, 66, 88) # Fioletowy akcent
+    pdf.set_text_color(94, 66, 88)
     pdf.cell(120, 10, f"Raport kampanii dla {firma}", ln=1)
     
-    # Okres
     if okres:
         pdf.set_font('DejaVu', '', 12)
         pdf.set_text_color(140, 140, 140)
         pdf.cell(120, 8, f"Okres: {okres}", ln=1)
         
-    # Wstawianie logo klienta po prawej stronie nagłówka
     if logo_klienta:
         try:
             img = Image.open(logo_klienta)
@@ -149,15 +144,14 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 calc_w = calc_h / ratio
                 
             logo_x = 195 - calc_w
-            # Logo umieszczone obok tytułu "Raport kampanii..."
             pdf.image(client_logo_path, x=logo_x, y=35, w=calc_w, h=calc_h)
         except Exception as e:
             pass
 
-    pdf.ln(12) # Odstęp przed pierwszą tabelą
+    pdf.ln(12) 
     
-    # --- Funkcja pomocnicza budująca blok danych i dodająca pod nim obrazki ---
-    def add_section_with_images(title, data_dict, uploaded_files):
+    # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
+    def add_section_with_images(title, description, data_dict, uploaded_files):
         if pdf.get_y() > 220:
             pdf.add_page()
             
@@ -166,6 +160,15 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_text_color(255, 255, 255)
         pdf.set_font('DejaVu', 'B', 12)
         pdf.cell(0, 10, f"  {title}", ln=1, fill=True)
+        
+        # Opis sekcji
+        if description.strip():
+            pdf.set_font('DejaVu', '', 10)
+            pdf.set_text_color(100, 100, 100)
+            # Dodajemy delikatny lewy margines i rysujemy tekst
+            pdf.set_x(12)
+            pdf.multi_cell(186, 6, description.strip(), align='L')
+            pdf.ln(2)
         
         # Wiersze z danymi
         pdf.set_fill_color(252, 252, 252)
@@ -212,24 +215,24 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                     pass
         pdf.ln(5)
 
-    add_section_with_images("Portal Produkty i Firmy", {
+    add_section_with_images("Portal Produkty i Firmy", desc_portal, {
         "Liczba zdarzeń na portalu": zdarzenia,
         "Odsłony": odslony,
         "Zaangażowanie": zaangazowanie
     }, img_portal)
     
-    add_section_with_images("Google Discover", {
+    add_section_with_images("Google Discover", desc_disc, {
         "Odsłony": g_disc_odslony,
         "Kliknięcia": g_disc_klik
     }, img_disc)
     
-    add_section_with_images("Google Wyniki Wyszukiwania", {
+    add_section_with_images("Wyniki wyszukiwania w wyszukiwarce Google", desc_wyniki, {
         "Odsłony": g_wyniki_odslony,
         "Kliknięcia": g_wyniki_klik,
         "Generatywna AI": g_ai
     }, img_wyniki)
     
-    add_section_with_images("Inne źródła (Media Społecznościowe)", {
+    add_section_with_images("Inne źródła (Media Społecznościowe)", desc_inne, {
         "Liczba wyświetleń zajawki o artykule": zajawka,
         "Zasięgi na FB": fb_zasieg
     }, img_inne)
@@ -238,13 +241,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf_bytes = bytes(pdf.output())
         st.success("✨ Raport PDF został wygenerowany pomyślnie!")
         
-        # Niezawodny podgląd PDF
         st.markdown("### Podgląd raportu")
         pdf_viewer(input=pdf_bytes, width=700)
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Przycisk pobierania
         st.download_button(
             label="Pobierz Raport PDF 📥",
             data=pdf_bytes,
