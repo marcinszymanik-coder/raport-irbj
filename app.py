@@ -24,70 +24,70 @@ else:
 
 st.markdown("### Generator Raportów Zasięgowych")
 
-# Inicjalizacja zmiennych sesyjnych dla automatycznego uzupełniania pól
-if 'firma' not in st.session_state: st.session_state.firma = ""
-if 'okres' not in st.session_state: st.session_state.okres = ""
-if 'zdarzenia' not in st.session_state: st.session_state.zdarzenia = ""
-if 'odslony' not in st.session_state: st.session_state.odslony = ""
-if 'zaangazowanie' not in st.session_state: st.session_state.zaangazowanie = ""
-if 'g_disc_odslony' not in st.session_state: st.session_state.g_disc_odslony = ""
-if 'g_disc_klik' not in st.session_state: st.session_state.g_disc_klik = ""
-if 'g_wyniki_odslony' not in st.session_state: st.session_state.g_wyniki_odslony = ""
-if 'g_wyniki_klik' not in st.session_state: st.session_state.g_wyniki_klik = ""
+# Inicjalizacja pustych zmiennych sesyjnych (usunięto z góry wpisane wartości)
+keys_to_init = [
+    'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie', 
+    'zajawka', 'g_disc_odslony', 'g_disc_klik', 
+    'g_wyniki_odslony', 'g_wyniki_klik', 'g_ai', 'fb_zasieg'
+]
+for k in keys_to_init:
+    if k not in st.session_state:
+        st.session_state[k] = ""
 
 # --- AUTOMATYCZNE ZACZYTYWANIE Z PDF ---
 st.info("💡 Możesz zautomatyzować wpisywanie danych, wgrywając poniżej surowy raport PDF z Google Analytics. System sam wyciągnie z niego liczby i daty.")
 uploaded_ga_pdf = st.file_uploader("Wgraj raport PDF z Google Analytics (Opcjonalnie)", type=["pdf"])
 
 if uploaded_ga_pdf is not None:
-    # Zabezpieczenie przed ciągłym przeładowywaniem tego samego pliku
     if not st.session_state.get(f'processed_{uploaded_ga_pdf.name}', False):
         try:
             reader = PyPDF2.PdfReader(uploaded_ga_pdf)
             text = ""
             for page in reader.pages:
-                text += page.extract_text()
+                text += page.extract_text() + "\n"
             
-            # Ekstrakcja danych przy pomocy wyrażeń regularnych
-            firma_match = re.search(r'Raport pakiet Produkty i Firmy\s*-\s*(.*)', text)
+            # Wyszukiwanie firmy
+            firma_match = re.search(r'Produkty i Firmy\s*-\s*(.*)', text)
             if firma_match: st.session_state.firma = firma_match.group(1).strip()
             
-            date_match = re.search(r'(\d{1,2}\s+[a-zżźćńółęąś]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-zżźćńółęąś]+\s+\d{4})', text, re.IGNORECASE)
+            # Wyszukiwanie daty (np. 1 sty 2026-8 paź 2026)
+            date_match = re.search(r'(\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4})', text, re.IGNORECASE)
             if date_match: st.session_state.okres = date_match.group(1).strip()
             
             def extract_val(pattern):
                 match = re.search(pattern, text)
-                return match.group(1).strip() if match else None
+                return match.group(1).strip() if match else ""
 
-            val = extract_val(r'Zdarzenia\s*([\d\s]+)')
+            # Ulepszone wyrażenia regularne omijające ukryte znaki nowych linii w PDF
+            val = extract_val(r'Zdarzenia[\s]*([0-9 \xa0]+)')
             if val: st.session_state.zdarzenia = val
             
-            val = extract_val(r'Odsłony z GA4\s*([\d\s]+)')
+            val = extract_val(r'Odsłony z GA4[\s]*([0-9 \xa0]+)')
             if val: st.session_state.odslony = val
             
-            val = extract_val(r'Zaangażowanie\s*([\d,%]+)')
+            val = extract_val(r'Zaangażowanie[\s]*([0-9,%]+)')
             if val: st.session_state.zaangazowanie = val
             
-            val = extract_val(r'Kliknięcia z Discover\s*([\d\s]+)')
+            val = extract_val(r'Kliknięcia z Discover[\s]*([0-9 \xa0]+)')
             if val: st.session_state.g_disc_klik = val
             
-            val = extract_val(r'Odsłony z Discover\s*([\d\s]+)')
+            val = extract_val(r'Odsłony z Discover[\s]*([0-9 \xa0]+)')
             if val: st.session_state.g_disc_odslony = val
             
-            val = extract_val(r'Kliknięcia z Google\s*([\d\s]+)')
+            val = extract_val(r'Kliknięcia z Google[\s]*([0-9 \xa0]+)')
             if val: st.session_state.g_wyniki_klik = val
             
-            val = extract_val(r'Odsłony z Google\s*([\d\s]+)')
+            val = extract_val(r'Odsłony z Google[\s]*([0-9 \xa0]+)')
             if val: st.session_state.g_wyniki_odslony = val
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
-            st.rerun() # Odśwież aplikację, aby pola formularza pobrały wczytane zmienne
+            st.rerun() 
         except Exception as e:
             st.error(f"Wystąpił problem podczas odczytywania pliku: {e}")
 
 st.markdown("---")
 
-# Sekcja dla klienta (korzysta z kluczy session_state do wyświetlania wczytanych danych)
+# Sekcja dla klienta (połączona ze zmiennymi sesyjnymi)
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
     firma = st.text_input("Raport dla firmy:", key="firma")
@@ -109,7 +109,7 @@ odslony = col1b.text_input("Odsłony (Portal):", key="odslony")
 
 col1c, col1d = st.columns(2)
 zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie")
-zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", value="1000") # To pole nie zaczytuje się z PDF, zostaje domyślne
+zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", key="zajawka")
 img_portal = st.file_uploader("Dodaj grafiki (Portal Produkty i Firmy)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 st.markdown("---")
 
@@ -128,14 +128,14 @@ desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", "Wyniki przedstawiają
 col3a, col3b, col3c = st.columns(3)
 g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony")
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik")
-g_ai = col3c.text_input("Generatywna AI:", value="15 300 od 18 maja") # To pole nie zaczytuje się z PDF
+g_ai = col3c.text_input("Generatywna AI:", key="g_ai")
 img_wyniki = st.file_uploader("Dodaj grafiki (Wyniki Wyszukiwania i AI)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p3")
 st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Media społecznościowe")
 desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70)
-fb_zasieg = st.text_input("Zasięgi na FB:", value="ponad 160 000 wyświetleń") # To pole nie zaczytuje się z PDF
+fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg")
 img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe) - automatyczny układ 2 kolumn", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -172,7 +172,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.cell(0, 5, f"Strona {self.page_no()}/{{nb}}", align='R')
             
     pdf = ReportPDF()
-    pdf.alias_nb_pages()
+    pdf.alias_nb_pages() 
     pdf.set_auto_page_break(auto=True, margin=35) 
     
     if os.path.exists(font_file):
@@ -180,6 +180,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.add_font('DejaVu', 'B', font_file, uni=True)
         pdf.set_font('DejaVu', '', 12)
     else:
+        st.warning("Brak pliku DejaVuSans.ttf. Polskie znaki mogą nie działać prawidłowo.")
         pdf.set_font('Arial', '', 12)
         
     pdf.add_page()
@@ -221,6 +222,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     pdf.ln(12) 
     
+    # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
