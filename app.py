@@ -2,27 +2,12 @@ import streamlit as st
 from fpdf import FPDF
 import tempfile
 import os
-import requests
 from PIL import Image
 
 # Konfiguracja strony
 st.set_page_config(page_title="Generator Raportów - Produkty i Firmy", page_icon="📊", layout="centered")
 
-# Funkcja do pobierania polskiej czcionki (aby PDF poprawnie wyświetlał polskie znaki)
-@st.cache_resource
-def download_font():
-    font_url = "https://github.com/matomo-org/travis-scripts/raw/master/fonts/DejaVuSans.ttf"
-    font_path = "DejaVuSans.ttf"
-    if not os.path.exists(font_path):
-        try:
-            r = requests.get(font_url, allow_redirects=True)
-            with open(font_path, 'wb') as f:
-                f.write(r.content)
-        except Exception as e:
-            pass
-    return font_path
-
-font_file = download_font()
+font_file = "DejaVuSans.ttf"
 
 # Wyświetlanie logo (korzysta z dostarczonego pliku SVG)
 if os.path.exists("logo-irbj-new.svg"):
@@ -77,11 +62,14 @@ if st.button("Generuj dokument PDF", type="primary"):
             self.multi_cell(0, 5, stopka, align='C')
             
     pdf = ReportPDF()
+    
+    # Dodawanie czcionki z obsługą polskich znaków
     if os.path.exists(font_file):
         pdf.add_font('DejaVu', '', font_file, uni=True)
         pdf.add_font('DejaVu', 'B', font_file, uni=True)
         pdf.set_font('DejaVu', '', 12)
     else:
+        st.warning("Brak pliku DejaVuSans.ttf w repozytorium. Polskie znaki mogą nie działać.")
         pdf.set_font('Arial', '', 12)
         
     pdf.add_page()
@@ -148,4 +136,4 @@ if st.button("Generuj dokument PDF", type="primary"):
             mime="application/pdf"
         )
     except Exception as e:
-        st.error(f"Wystąpił błąd: {e}")
+        st.error(f"Wystąpił błąd podczas generowania: {e}")
