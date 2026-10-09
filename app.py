@@ -93,6 +93,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_line_width(0.5)
             self.line(20, self.get_y(), 190, self.get_y())
             
+            # Informacje o firmie
             self.set_y(-25)
             self.set_font('DejaVu', '', 9)
             self.set_text_color(120, 120, 120)
@@ -102,8 +103,14 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             )
             self.multi_cell(0, 5, stopka, align='C')
             
+            # Numeracja stron
+            self.set_y(-15)
+            self.set_font('DejaVu', '', 8)
+            self.cell(0, 5, f"Strona {self.page_no()}/{{nb}}", align='R')
+            
     pdf = ReportPDF()
-    pdf.set_auto_page_break(auto=True, margin=35) # Ustawienie marginesu dolnego, aby ułatwić zarządzanie stronami
+    pdf.alias_nb_pages() # Konieczne, aby {nb} zostało podmienione na całkowitą liczbę stron
+    pdf.set_auto_page_break(auto=True, margin=35) 
     
     if os.path.exists(font_file):
         pdf.add_font('DejaVu', '', font_file, uni=True)
@@ -156,7 +163,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
-        # Sprawdzamy czy zmieści się przynajmniej nagłówek, opis i 2 wiersze danych (ok. 50mm)
         if pdf.get_y() > 230:
             pdf.add_page()
             
@@ -166,20 +172,19 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_font('DejaVu', 'B', 12)
         pdf.cell(0, 10, f"  {title}", ln=1, fill=True)
         
-        # Opis sekcji - zwiększony odstęp od nagłówka
+        # Opis sekcji
         if description.strip():
-            pdf.ln(3) # Odstęp
+            pdf.ln(3) 
             pdf.set_font('DejaVu', '', 10)
             pdf.set_text_color(100, 100, 100)
             pdf.set_x(12)
             pdf.multi_cell(186, 5, description.strip(), align='L')
-            pdf.ln(4) # Odstęp pod opisem
+            pdf.ln(4) 
         else:
              pdf.ln(2)
         
         # Wiersze z danymi
         if filtered_data:
-            # Jeśli sama tabela nie zmieści się na stronie, przenieś ją
             height_needed = len(filtered_data) * 10
             if pdf.get_y() + height_needed > 260:
                  pdf.add_page()
@@ -207,7 +212,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                             img.save(tmpfile.name, "JPEG")
                             temp_path = tmpfile.name
                         
-                        max_w, max_h = 170, 200 # Zmniejszona max wysokość, aby lepiej się układało
+                        max_w, max_h = 170, 200 
                         img_w, img_h = img.size
                         ratio = img_h / img_w
                         
@@ -218,7 +223,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                             calc_h = max_h
                             calc_w = calc_h / ratio
                             
-                        # Sprawdź, czy obrazek zmieści się na obecnej stronie
                         if pdf.get_y() + calc_h > 260:
                             pdf.add_page()
                             
@@ -276,7 +280,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                         pdf.set_y(current_y + row_h + 8)
                     except Exception as e:
                         pass
-        # Dodatkowy odstęp na końcu całej sekcji przed kolejną
         pdf.ln(6) 
 
     add_section_with_images("Portal Produkty i Firmy", desc_portal, {
