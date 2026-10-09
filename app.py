@@ -2,6 +2,8 @@ import streamlit as st
 from fpdf import FPDF
 import tempfile
 import os
+import re
+import PyPDF2
 from PIL import Image
 from streamlit_pdf_viewer import pdf_viewer
 
@@ -22,12 +24,75 @@ else:
 
 st.markdown("### Generator Raportów Zasięgowych")
 
-# Sekcja dla klienta
+# Inicjalizacja zmiennych sesyjnych dla automatycznego uzupełniania pól
+if 'firma' not in st.session_state: st.session_state.firma = ""
+if 'okres' not in st.session_state: st.session_state.okres = ""
+if 'zdarzenia' not in st.session_state: st.session_state.zdarzenia = ""
+if 'odslony' not in st.session_state: st.session_state.odslony = ""
+if 'zaangazowanie' not in st.session_state: st.session_state.zaangazowanie = ""
+if 'g_disc_odslony' not in st.session_state: st.session_state.g_disc_odslony = ""
+if 'g_disc_klik' not in st.session_state: st.session_state.g_disc_klik = ""
+if 'g_wyniki_odslony' not in st.session_state: st.session_state.g_wyniki_odslony = ""
+if 'g_wyniki_klik' not in st.session_state: st.session_state.g_wyniki_klik = ""
+
+# --- AUTOMATYCZNE ZACZYTYWANIE Z PDF ---
+st.info("💡 Możesz zautomatyzować wpisywanie danych, wgrywając poniżej surowy raport PDF z Google Analytics. System sam wyciągnie z niego liczby i daty.")
+uploaded_ga_pdf = st.file_uploader("Wgraj raport PDF z Google Analytics (Opcjonalnie)", type=["pdf"])
+
+if uploaded_ga_pdf is not None:
+    # Zabezpieczenie przed ciągłym przeładowywaniem tego samego pliku
+    if not st.session_state.get(f'processed_{uploaded_ga_pdf.name}', False):
+        try:
+            reader = PyPDF2.PdfReader(uploaded_ga_pdf)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text()
+            
+            # Ekstrakcja danych przy pomocy wyrażeń regularnych
+            firma_match = re.search(r'Raport pakiet Produkty i Firmy\s*-\s*(.*)', text)
+            if firma_match: st.session_state.firma = firma_match.group(1).strip()
+            
+            date_match = re.search(r'(\d{1,2}\s+[a-zżźćńółęąś]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-zżźćńółęąś]+\s+\d{4})', text, re.IGNORECASE)
+            if date_match: st.session_state.okres = date_match.group(1).strip()
+            
+            def extract_val(pattern):
+                match = re.search(pattern, text)
+                return match.group(1).strip() if match else None
+
+            val = extract_val(r'Zdarzenia\s*([\d\s]+)')
+            if val: st.session_state.zdarzenia = val
+            
+            val = extract_val(r'Odsłony z GA4\s*([\d\s]+)')
+            if val: st.session_state.odslony = val
+            
+            val = extract_val(r'Zaangażowanie\s*([\d,%]+)')
+            if val: st.session_state.zaangazowanie = val
+            
+            val = extract_val(r'Kliknięcia z Discover\s*([\d\s]+)')
+            if val: st.session_state.g_disc_klik = val
+            
+            val = extract_val(r'Odsłony z Discover\s*([\d\s]+)')
+            if val: st.session_state.g_disc_odslony = val
+            
+            val = extract_val(r'Kliknięcia z Google\s*([\d\s]+)')
+            if val: st.session_state.g_wyniki_klik = val
+            
+            val = extract_val(r'Odsłony z Google\s*([\d\s]+)')
+            if val: st.session_state.g_wyniki_odslony = val
+
+            st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
+            st.rerun() # Odśwież aplikację, aby pola formularza pobrały wczytane zmienne
+        except Exception as e:
+            st.error(f"Wystąpił problem podczas odczytywania pliku: {e}")
+
+st.markdown("---")
+
+# Sekcja dla klienta (korzysta z kluczy session_state do wyświetlania wczytanych danych)
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
-    firma = st.text_input("Raport dla firmy:", "FAKRO")
+    firma = st.text_input("Raport dla firmy:", key="firma")
 with col_firma2:
-    okres = st.text_input("Okres kampanii:", "wrzesień 2026")
+    okres = st.text_input("Okres kampanii:", key="okres")
 with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
@@ -39,12 +104,12 @@ st.caption("Każda sekcja posiada domyślny, krótki opis, który możesz edytow
 st.markdown("#### 1. Portal Produkty i Firmy")
 desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.", height=70)
 col1a, col1b = st.columns(2)
-zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", "46 963")
-odslony = col1b.text_input("Odsłony (Portal):", "14 097")
+zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia")
+odslony = col1b.text_input("Odsłony (Portal):", key="odslony")
 
 col1c, col1d = st.columns(2)
-zaangazowanie = col1c.text_input("Zaangażowanie:", "99,53%")
-zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", "1000")
+zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie")
+zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", value="1000") # To pole nie zaczytuje się z PDF, zostaje domyślne
 img_portal = st.file_uploader("Dodaj grafiki (Portal Produkty i Firmy)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 st.markdown("---")
 
@@ -52,8 +117,8 @@ st.markdown("---")
 st.markdown("#### 2. Google Discover")
 desc_disc = st.text_area("Opis sekcji (Discover):", "Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.", height=70)
 col2a, col2b = st.columns(2)
-g_disc_odslony = col2a.text_input("Google Discover - odsłony:", "44 733")
-g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", "696")
+g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony")
+g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik")
 img_disc = st.file_uploader("Dodaj grafiki (Google Discover)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p2")
 st.markdown("---")
 
@@ -61,16 +126,16 @@ st.markdown("---")
 st.markdown("#### 3. Wyniki wyszukiwania w wyszukiwarce Google")
 desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", "Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.", height=70)
 col3a, col3b, col3c = st.columns(3)
-g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", "152 936")
-g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", "1418")
-g_ai = col3c.text_input("Generatywna AI:", "15 300 od 18 maja")
+g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony")
+g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik")
+g_ai = col3c.text_input("Generatywna AI:", value="15 300 od 18 maja") # To pole nie zaczytuje się z PDF
 img_wyniki = st.file_uploader("Dodaj grafiki (Wyniki Wyszukiwania i AI)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p3")
 st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Media społecznościowe")
 desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70)
-fb_zasieg = st.text_input("Zasięgi na FB:", "ponad 160 000 wyświetleń")
+fb_zasieg = st.text_input("Zasięgi na FB:", value="ponad 160 000 wyświetleń") # To pole nie zaczytuje się z PDF
 img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe) - automatyczny układ 2 kolumn", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -93,7 +158,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_line_width(0.5)
             self.line(20, self.get_y(), 190, self.get_y())
             
-            # Informacje o firmie
             self.set_y(-25)
             self.set_font('DejaVu', '', 9)
             self.set_text_color(120, 120, 120)
@@ -103,13 +167,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             )
             self.multi_cell(0, 5, stopka, align='C')
             
-            # Numeracja stron
             self.set_y(-15)
             self.set_font('DejaVu', '', 8)
             self.cell(0, 5, f"Strona {self.page_no()}/{{nb}}", align='R')
             
     pdf = ReportPDF()
-    pdf.alias_nb_pages() # Konieczne, aby {nb} zostało podmienione na całkowitą liczbę stron
+    pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=35) 
     
     if os.path.exists(font_file):
@@ -117,7 +180,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.add_font('DejaVu', 'B', font_file, uni=True)
         pdf.set_font('DejaVu', '', 12)
     else:
-        st.warning("Brak pliku DejaVuSans.ttf. Polskie znaki mogą nie działać prawidłowo.")
         pdf.set_font('Arial', '', 12)
         
     pdf.add_page()
@@ -159,20 +221,17 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     pdf.ln(12) 
     
-    # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
         if pdf.get_y() > 230:
             pdf.add_page()
             
-        # Nagłówek sekcji
         pdf.set_fill_color(94, 66, 88)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font('DejaVu', 'B', 12)
         pdf.cell(0, 10, f"  {title}", ln=1, fill=True)
         
-        # Opis sekcji
         if description.strip():
             pdf.ln(3) 
             pdf.set_font('DejaVu', '', 10)
@@ -183,7 +242,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         else:
              pdf.ln(2)
         
-        # Wiersze z danymi
         if filtered_data:
             height_needed = len(filtered_data) * 10
             if pdf.get_y() + height_needed > 260:
@@ -201,7 +259,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
             pdf.ln(6)
         
-        # Wyświetlanie załączonych obrazków
         if uploaded_files:
             if not two_columns:
                 for file in uploaded_files:
