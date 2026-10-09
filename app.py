@@ -46,47 +46,82 @@ if uploaded_ga_pdf is not None:
             for page in reader.pages:
                 text += page.extract_text() + "\n"
             
-            # Wyszukiwanie firmy na oryginalnym tekście
-            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
-            if firma_match: st.session_state.firma = firma_match.group(1).strip()
+            # Tworzymy listę wszystkich linijek z PDF (pozbywając się pustych)
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Poprawione wyszukiwanie daty
-            # Szuka wzorca typu "1 sty 2026-8 paź 2026" i ignoruje nowe linie pośrodku
-            date_match = re.search(r'(\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4})', text.replace('\n', ''), re.IGNORECASE)
-            if date_match: st.session_state.okres = date_match.group(1).strip()
-            
-            # --- WYSZUKIWANIE LICZB ---
-            # Zastosowanie bardziej precyzyjnych wzorców powiązanych ze strukturą tabelaryczną
-            def get_num(pattern, text_data, is_percentage=False):
-                # Szukamy wystąpienia i formatujemy
-                m = re.search(pattern, text_data, re.IGNORECASE)
-                if m:
-                    # Wyczyszczenie liczby z dodatkowych znaków np. spacji przed formatowaniem
-                    raw_num = m.group(1).replace(' ', '').replace('\xa0', '').replace('\n', '')
-                    if is_percentage:
-                        return f"{raw_num}%"
-                    
-                    if raw_num.isdigit() and len(raw_num) >= 4:
-                         return f"{int(raw_num):,}".replace(",", " ")
-                    return raw_num
+            # 1. Szukanie firmy
+            for line in lines:
+                if 'Produkty i Firmy' in line and '-' in line:
+                    firma_name = line.split('-')[-1].strip()
+                    if firma_name and not st.session_state.firma:
+                        st.session_state.firma = firma_name
+                        break
+                        
+            # 2. Szukanie daty
+            for line in lines:
+                if re.search(r'\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}', line, re.IGNORECASE) and ('-' in line or '–' in line):
+                    if not st.session_state.okres:
+                        st.session_state.okres = line.strip()
+                        break
+
+            # Pomocnicza funkcja formatująca (15000 -> 15 000)
+            def format_num(val_str, is_pct=False):
+                val_str = re.sub(r'\s+', '', val_str)
+                if is_pct:
+                    return val_str
+                if val_str.isdigit() and len(val_str) >= 4:
+                    return f"{int(val_str):,}".replace(",", " ")
+                return val_str
+
+            # 3. Niezawodny skaner wartości (linijka po linijce)
+            def find_val(k1, k2=None, is_pct=False):
+                for i, line in enumerate(lines):
+                    line_low = line.lower()
+                    if k1 in line_low and (not k2 or k2 in line_low):
+                        # Krok A: Sprawdzenie, czy wartość jest na tej samej linijce co napis (np. "Odsłony z GA4 14 051")
+                        clean_line = line_low.replace(k1, '')
+                        if k2: clean_line = clean_line.replace(k2, '')
+                        
+                        pattern = r'([\d\s]+(?:,[\d]+)?%?)' if is_pct else r'([\d\s]+)'
+                        m = re.search(pattern, clean_line)
+                        if m:
+                            v = m.group(1).strip()
+                            if any(c.isdigit() for c in v): # Upewniamy się, że złapało cyfrę
+                                return format_num(v, is_pct)
+                                
+                        # Krok B: Jeśli nie było w tej samej, sprawdzamy maks. 3 linijki w dół pod napisem
+                        for j in range(1, 4):
+                            if i + j < len(lines):
+                                check_line = lines[i+j].strip()
+                                # Tu wymagamy, by cała znaleziona linijka była tylko szukaną liczbą
+                                m_strict = re.search(r'^' + pattern + r'$', check_line)
+                                if m_strict:
+                                    v_strict = m_strict.group(1).strip()
+                                    if any(c.isdigit() for c in v_strict):
+                                        return format_num(v_strict, is_pct)
                 return ""
 
-            # Usuwanie nowych linii może zepsuć niektóre wzorce, dlatego 
-            # w tym podejściu czyścimy wybiórczo do szukania konkretnych wartości
-            clean_text_for_search = text.replace('\n', '')
-
-            # Używamy uogólnionych nazw kolumn z raportu FAKRO (np. Odsłony z GA4, Odsłony z Discover)
-            st.session_state.zdarzenia = get_num(r'Zdarzenia\s*([\d \xa0]+)', clean_text_for_search)
-            st.session_state.odslony = get_num(r'Ods[łl]ony z GA4\s*([\d \xa0]+)', clean_text_for_search)
-            st.session_state.zaangazowanie = get_num(r'Zaanga[żz]owanie\s*([\d,]+)%', clean_text_for_search, is_percentage=True)
+            # Wyciąganie konkretnych wartości na podstawie unikalnych słów 
+            val = find_val('zdarzenia')
+            if val: st.session_state.zdarzenia = val
             
-            # Wartości dla Google Discover
-            st.session_state.g_disc_klik = get_num(r'Klikni[ęe]cia z Discover\s*([\d \xa0]+)', clean_text_for_search)
-            st.session_state.g_disc_odslony = get_num(r'Ods[łl]ony z Discover\s*([\d \xa0]+)', clean_text_for_search)
+            val = find_val('ga4')
+            if val: st.session_state.odslony = val
             
-            # Wartości dla wyników z Google
-            st.session_state.g_wyniki_klik = get_num(r'Klikni[ęe]cia z Google\s*([\d \xa0]+)', clean_text_for_search)
-            st.session_state.g_wyniki_odslony = get_num(r'Ods[łl]ony z Google\s*([\d \xa0]+)', clean_text_for_search)
+            val = find_val('zaanga', is_pct=True)
+            if val: st.session_state.zaangazowanie = val
+            
+            val = find_val('discover', 'klik')
+            if val: st.session_state.g_disc_klik = val
+            
+            val = find_val('discover', 'ods')
+            if val: st.session_state.g_disc_odslony = val
+            
+            val = find_val('google', 'klik')
+            if val: st.session_state.g_wyniki_klik = val
+            
+            val = find_val('google', 'ods')
+            if val: st.session_state.g_wyniki_odslony = val
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
             st.rerun() 
