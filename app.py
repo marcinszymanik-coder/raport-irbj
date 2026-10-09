@@ -44,50 +44,53 @@ if uploaded_ga_pdf is not None:
             reader = PyPDF2.PdfReader(uploaded_ga_pdf)
             text = ""
             for page in reader.pages:
-                text += page.extract_text() + " "
+                text += page.extract_text() + "\n"
             
-            # Zastąpienie nowych linii spacja - ZAPOBIEGA sklejaniu się liczb (np. 14 051 z datą)
-            text = re.sub(r'\s+', ' ', text)
-            
-            # Wyszukiwanie firmy
-            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\s]+)', text, re.IGNORECASE)
+            # Wyszukiwanie firmy na oryginalnym tekście
+            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
             if firma_match: st.session_state.firma = firma_match.group(1).strip()
             
-            # Wyszukiwanie daty (odporne na polskie znaki, szuka schematu DD MMM YYYY - DD MMM YYYY)
-            date_match = re.search(r'(\d{1,2}\s+[a-zżźćńółęąś]{3,5}\s+\d{4}\s*-\s*\d{1,2}\s+[a-zżźćńółęąś]{3,5}\s+\d{4})', text, re.IGNORECASE)
+            # Wyszukiwanie daty (np. 1 sty 2026-8 paź 2026) na oryginalnym tekście
+            date_match = re.search(r'(\d{1,2}\s+[^\s\d]{3,9}\s+\d{4}\s*-\s*\d{1,2}\s+[^\s\d]{3,9}\s+\d{4})', text, re.IGNORECASE)
             if date_match: st.session_state.okres = date_match.group(1).strip()
             
-            # --- NIEZAWODNA METODA CZYTANIA WARTOŚCI ---
-            def find_val(keyword, txt, is_pct=False):
-                # Szukamy wystąpień słowa kluczowego
-                for match in re.finditer(keyword, txt, re.IGNORECASE):
-                    # Pobieramy 30 znaków znajdujących się BEZPOŚREDNIO za szukanym słowem
-                    after_str = txt[match.end():match.end()+30].strip()
-                    if is_pct:
-                        # Szukamy pierwszej liczby zakończonej procentem (np. 99,52%)
-                        m = re.search(r'^([\d,]+%)', after_str)
-                        if m: return m.group(1)
-                    else:
-                        # Szukamy pierwszego ciągu cyfr i spacji (np. 14 051)
-                        m = re.search(r'^([\d\s]+)', after_str)
-                        if m:
-                            val = m.group(1).replace(' ', '')
-                            if val.isdigit():
-                                # Formatuje np. 152936 na 152 936
-                                if len(val) >= 4:
-                                    return f"{int(val):,}".replace(",", " ")
-                                return val
+            # --- MEGA ODPORNE WYSZUKIWANIE LICZB ---
+            # Usuwamy WSZYSTKIE białe znaki, spacje i entery z całego PDF
+            clean_text = re.sub(r'\s+', '', text).lower()
+            
+            def get_num(pattern):
+                # Szukamy wzoru w sklejonym tekście
+                m = re.search(pattern, clean_text)
+                if m:
+                    num = m.group(1)
+                    # Formatuje tysiące ze spacją (np. 152936 -> 152 936) dla czytelności
+                    if num.isdigit() and len(num) >= 4:
+                        return f"{int(num):,}".replace(",", " ")
+                    return num
                 return ""
 
-            st.session_state.zdarzenia = find_val(r'Zdarzenia', text)
-            st.session_state.odslony = find_val(r'GA4', text) # Koniec z błędami Odsłony vs Odsłony z GA4
-            st.session_state.zaangazowanie = find_val(r'Zaanga\S*owanie', text, is_pct=True) # \S* ignoruje błędne kodowanie polskich liter
+            # Szukamy po fragmentach pozbawionych polskich liter
+            val = get_num(r'zdarzenia(\d+)')
+            if val: st.session_state.zdarzenia = val
             
-            st.session_state.g_disc_klik = find_val(r'Klikni\S*cia z Discover', text)
-            st.session_state.g_disc_odslony = find_val(r'Ods\S*ony z Discover', text)
+            val = get_num(r'ga4(\d+)')
+            if val: st.session_state.odslony = val
             
-            st.session_state.g_wyniki_klik = find_val(r'Klikni\S*cia z Google', text)
-            st.session_state.g_wyniki_odslony = find_val(r'Ods\S*ony z Google', text)
+            # Zaangażowanie zawiera znak %, łapiemy z przecinkiem
+            m_zaang = re.search(r'zaanga[^\d]*(\d+(?:,\d+)?%)', clean_text)
+            if m_zaang: st.session_state.zaangazowanie = m_zaang.group(1)
+            
+            val = get_num(r'ciazdiscover(\d+)')
+            if val: st.session_state.g_disc_klik = val
+            
+            val = get_num(r'onyzdiscover(\d+)')
+            if val: st.session_state.g_disc_odslony = val
+            
+            val = get_num(r'ciazgoogle(\d+)')
+            if val: st.session_state.g_wyniki_klik = val
+            
+            val = get_num(r'onyzgoogle(\d+)')
+            if val: st.session_state.g_wyniki_odslony = val
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
             st.rerun() 
