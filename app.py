@@ -23,10 +23,12 @@ else:
 st.markdown("### Generator Raportów Zasięgowych")
 
 # Sekcja dla klienta
-col_firma1, col_firma2 = st.columns(2)
+col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
-    firma = st.text_input("Raport wygenerowany dla (nazwa firmy):", "Wpisz nazwę firmy...")
+    firma = st.text_input("Raport dla firmy:", "FAKRO")
 with col_firma2:
+    okres = st.text_input("Okres kampanii:", "wrzesień 2026")
+with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
 st.markdown("---")
@@ -77,20 +79,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_fill_color(255, 160, 0)
             self.rect(0, 0, 210, 6, 'F')
             
-            # Wstawienie logo (jeśli plik logo.png istnieje na GitHubie)
+            # Wstawienie logo "Produkty i Firmy" w lewym górnym rogu
             if os.path.exists(logo_png):
                 self.image(logo_png, x=15, y=10, w=50)
             
-            # Tytuł na dokumencie
-            self.set_y(18)
-            self.set_font('DejaVu', 'B', 20)
-            self.set_text_color(94, 66, 88) # Fiolet z logo
-            self.cell(0, 10, "RAPORT Z KAMPANII", border=0, ln=1, align='R')
-            
-            self.set_font('DejaVu', '', 11)
-            self.set_text_color(120, 120, 120)
-            self.cell(0, 6, "Zasięgi i statystyki", border=0, ln=1, align='R')
-            self.ln(15)
+            # Zostawiamy miejsce po logo
+            self.ln(20)
 
         def footer(self):
             self.set_y(-30)
@@ -121,36 +115,28 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         
     pdf.add_page()
     
-    # --- NOWA, ELEGANCKA SEKCJA "PRZYGOTOWANO DLA" ---
-    start_y = pdf.get_y()
+    # --- NOWY, UPROSZCZONY NAGŁÓWEK RAPORTU ---
+    pdf.set_y(35) # Ustawienie pod logo
     
-    # Subtelna pionowa pomarańczowa linia akcentująca
-    pdf.set_draw_color(255, 160, 0)
-    pdf.set_line_width(0.8)
-    pdf.line(15, start_y, 15, start_y + 14)
+    # Tytuł
+    pdf.set_font('DejaVu', 'B', 20)
+    pdf.set_text_color(94, 66, 88) # Fioletowy akcent
+    pdf.cell(120, 10, f"Raport kampanii dla {firma}", ln=1)
     
-    # Etykieta
-    pdf.set_xy(18, start_y)
-    pdf.set_font('DejaVu', '', 10)
-    pdf.set_text_color(140, 140, 140)
-    pdf.cell(100, 5, "PRZYGOTOWANO DLA:", ln=1)
-    
-    # Nazwa firmy
-    pdf.set_xy(18, start_y + 6)
-    pdf.set_font('DejaVu', 'B', 16)
-    pdf.set_text_color(40, 40, 40)
-    pdf.cell(100, 8, firma, ln=1)
-    
-    # Wstawianie logo klienta po prawej stronie
+    # Okres
+    if okres:
+        pdf.set_font('DejaVu', '', 12)
+        pdf.set_text_color(140, 140, 140)
+        pdf.cell(120, 8, f"Okres: {okres}", ln=1)
+        
+    # Wstawianie logo klienta po prawej stronie nagłówka
     if logo_klienta:
         try:
             img = Image.open(logo_klienta)
-            # Zapisz jako PNG, aby zachować przezroczystość logo
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
                 img.save(tmpfile.name, "PNG")
                 client_logo_path = tmpfile.name
             
-            # Obliczanie proporcji, max szerokość 50, max wysokość 18
             max_w, max_h = 50, 18
             img_w, img_h = img.size
             ratio = img_h / img_w
@@ -162,13 +148,13 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 calc_h = max_h
                 calc_w = calc_h / ratio
                 
-            # Wyrównanie do prawej strony (210mm - margines 15mm - szerokość obrazka)
             logo_x = 195 - calc_w
-            pdf.image(client_logo_path, x=logo_x, y=start_y - 2, w=calc_w, h=calc_h)
+            # Logo umieszczone obok tytułu "Raport kampanii..."
+            pdf.image(client_logo_path, x=logo_x, y=35, w=calc_w, h=calc_h)
         except Exception as e:
             pass
 
-    pdf.set_y(start_y + 25)
+    pdf.ln(12) # Odstęp przed pierwszą tabelą
     
     # --- Funkcja pomocnicza budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, data_dict, uploaded_files):
