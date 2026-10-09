@@ -46,42 +46,50 @@ if uploaded_ga_pdf is not None:
             for page in reader.pages:
                 text += page.extract_text() + "\n"
             
-            # Wyszukiwanie firmy
-            firma_match = re.search(r'Produkty i Firmy\s*-\s*(.*)', text, re.IGNORECASE)
+            # Wyszukiwanie firmy na oryginalnym tekście
+            firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
             if firma_match: st.session_state.firma = firma_match.group(1).strip()
             
-            # Wyszukiwanie daty
-            date_match = re.search(r'(\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4})', text, re.IGNORECASE)
+            # Wyszukiwanie daty (np. 1 sty 2026-8 paź 2026) na oryginalnym tekście
+            date_match = re.search(r'(\d{1,2}\s+[^\s\d]{3,9}\s+\d{4}\s*-\s*\d{1,2}\s+[^\s\d]{3,9}\s+\d{4})', text, re.IGNORECASE)
             if date_match: st.session_state.okres = date_match.group(1).strip()
             
-            # Elastyczne szukanie omijające problemy z polskimi znakami w PDF
-            def extract_val(pattern, text_to_search, is_percentage=False):
-                # pattern + dowolna ilość spacji/nowych linii + liczba (ewentualnie ze spacją tysięcy, przecinkiem i %)
-                full_pattern = pattern + r'[\s]*([\d \xa0]+(?:,[\d]+)?%?)' if is_percentage else pattern + r'[\s]*([\d \xa0]+)'
-                match = re.search(full_pattern, text_to_search, re.IGNORECASE)
-                if match:
-                    return match.group(1).replace('\n', '').replace('\xa0', ' ').strip()
+            # --- MEGA ODPORNE WYSZUKIWANIE LICZB ---
+            # Usuwamy WSZYSTKIE białe znaki, spacje i entery z całego PDF
+            clean_text = re.sub(r'\s+', '', text).lower()
+            
+            def get_num(pattern):
+                # Szukamy wzoru w sklejonym tekście
+                m = re.search(pattern, clean_text)
+                if m:
+                    num = m.group(1)
+                    # Formatuje tysiące ze spacją (np. 152936 -> 152 936) dla czytelności
+                    if num.isdigit() and len(num) >= 4:
+                        return f"{int(num):,}".replace(",", " ")
+                    return num
                 return ""
 
-            val = extract_val(r'Zdarzenia', text)
+            # Szukamy po fragmentach pozbawionych polskich liter
+            val = get_num(r'zdarzenia(\d+)')
             if val: st.session_state.zdarzenia = val
             
-            val = extract_val(r'Ods.ony\s*z\s*GA4', text)
+            val = get_num(r'ga4(\d+)')
             if val: st.session_state.odslony = val
             
-            val = extract_val(r'Zaanga.owanie', text, is_percentage=True)
-            if val: st.session_state.zaangazowanie = val
+            # Zaangażowanie zawiera znak %, łapiemy z przecinkiem
+            m_zaang = re.search(r'zaanga[^\d]*(\d+(?:,\d+)?%)', clean_text)
+            if m_zaang: st.session_state.zaangazowanie = m_zaang.group(1)
             
-            val = extract_val(r'Klikni.cia\s*z\s*Discover', text)
+            val = get_num(r'ciazdiscover(\d+)')
             if val: st.session_state.g_disc_klik = val
             
-            val = extract_val(r'Ods.ony\s*z\s*Discover', text)
+            val = get_num(r'onyzdiscover(\d+)')
             if val: st.session_state.g_disc_odslony = val
             
-            val = extract_val(r'Klikni.cia\s*z\s*Google', text)
+            val = get_num(r'ciazgoogle(\d+)')
             if val: st.session_state.g_wyniki_klik = val
             
-            val = extract_val(r'Ods.ony\s*z\s*Google', text)
+            val = get_num(r'onyzgoogle(\d+)')
             if val: st.session_state.g_wyniki_odslony = val
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
@@ -226,7 +234,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     pdf.ln(12) 
     
-    # --- Funkcja budująca blok danych i dodająca pod nim obrazki ---
     def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
         filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
 
