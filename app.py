@@ -2,8 +2,8 @@ import streamlit as st
 from fpdf import FPDF
 import tempfile
 import os
-import base64
 from PIL import Image
+from streamlit_pdf_viewer import pdf_viewer
 
 # Konfiguracja strony
 st.set_page_config(page_title="Generator Raportów - Produkty i Firmy", page_icon="📊", layout="wide")
@@ -174,24 +174,20 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                     calc_w = max_w
                     calc_h = calc_w * ratio
                     
-                    # Jeśli obrazek jest bardzo wysoki (np. zrzut całego posta), skaluj do maks. wysokości
                     if calc_h > max_h:
                         calc_h = max_h
                         calc_w = calc_h / ratio
                         
-                    # Jeżeli grafika nie zmieści się na tej stronie, wymuś nową
                     if pdf.get_y() + calc_h > 260:
                         pdf.add_page()
                         
-                    # Wyśrodkowanie
                     x_pos = (210 - calc_w) / 2
                     pdf.image(temp_path, x=x_pos, w=calc_w, h=calc_h)
-                    pdf.ln(8) # Odstęp pod obrazkiem
+                    pdf.ln(8)
                 except Exception as e:
                     pass
-        pdf.ln(5) # Odstęp po całej sekcji
+        pdf.ln(5)
 
-    # --- Uzupełnianie raportu danymi z formularzy ---
     add_section_with_images("Portal Produkty i Firmy", {
         "Liczba zdarzeń na portalu": zdarzenia,
         "Odsłony": odslony,
@@ -214,20 +210,17 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Zasięgi na FB": fb_zasieg
     }, img_inne)
 
-    # --- Generowanie pliku, podgląd i pobieranie ---
     try:
         pdf_bytes = bytes(pdf.output())
         st.success("✨ Raport PDF został wygenerowany pomyślnie!")
         
-        # Sekcja z interaktywnym podglądem PDF
+        # Niezawodny podgląd PDF
         st.markdown("### Podgląd raportu")
-        base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="700" type="application/pdf"></iframe>'
-        st.markdown(pdf_display, unsafe_allow_html=True)
+        pdf_viewer(input=pdf_bytes, width=700)
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Przycisk pobierania pod podglądem
+        # Przycisk pobierania
         st.download_button(
             label="Pobierz Raport PDF 📥",
             data=pdf_bytes,
