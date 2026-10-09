@@ -131,7 +131,7 @@ if st.button("Generuj dokument PDF", type="primary"):
         st.success("Raport PDF został wygenerowany pomyślnie!")
         st.download_button(
             label="Pobierz Raport PDF 📥",
-            data=pdf_bytes,
+            data=bytes(pdf_bytes), # ZMIENIONA LINIJKA
             file_name=f"Raport_{firma.replace(' ', '_')}.pdf",
             mime="application/pdf"
         )
