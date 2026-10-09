@@ -24,7 +24,7 @@ else:
 
 st.markdown("### Generator Raportów Zasięgowych")
 
-# Inicjalizacja pustych zmiennych sesyjnych (usunięto z góry wpisane wartości)
+# Inicjalizacja pustych zmiennych sesyjnych
 keys_to_init = [
     'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie', 
     'zajawka', 'g_disc_odslony', 'g_disc_klik', 
@@ -50,34 +50,40 @@ if uploaded_ga_pdf is not None:
             firma_match = re.search(r'Produkty i Firmy\s*-\s*(.*)', text)
             if firma_match: st.session_state.firma = firma_match.group(1).strip()
             
-            # Wyszukiwanie daty (np. 1 sty 2026-8 paź 2026)
+            # Wyszukiwanie daty
             date_match = re.search(r'(\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4})', text, re.IGNORECASE)
             if date_match: st.session_state.okres = date_match.group(1).strip()
             
-            def extract_val(pattern):
-                match = re.search(pattern, text)
-                return match.group(1).strip() if match else ""
+            # Funkcja do wyszukiwania wartości nawet, jeśli jest w nowej linii (odporniejsza na formatowanie PDF)
+            def extract_val(keyword, text_to_search, is_percentage=False):
+                # Szuka słowa kluczowego, pozwala na znaki białe/nowej linii i wyłapuje liczbę (z opcjonalnym znakiem %)
+                pattern = keyword + r'\s*([\d\s]+(?:,[\d]+)?%?)' if is_percentage else keyword + r'\s*([\d\s]+)'
+                match = re.search(pattern, text_to_search)
+                if match:
+                    val = match.group(1).replace('\n', '').replace('\xa0', ' ').strip()
+                    return val
+                return ""
 
-            # Ulepszone wyrażenia regularne omijające ukryte znaki nowych linii w PDF
-            val = extract_val(r'Zdarzenia[\s]*([0-9 \xa0]+)')
+            val = extract_val(r'Zdarzenia', text)
             if val: st.session_state.zdarzenia = val
             
-            val = extract_val(r'Odsłony z GA4[\s]*([0-9 \xa0]+)')
+            val = extract_val(r'Odsłony z GA4', text)
             if val: st.session_state.odslony = val
             
-            val = extract_val(r'Zaangażowanie[\s]*([0-9,%]+)')
+            val = extract_val(r'Zaangażowanie', text, is_percentage=True)
             if val: st.session_state.zaangazowanie = val
             
-            val = extract_val(r'Kliknięcia z Discover[\s]*([0-9 \xa0]+)')
+            # Szukanie konkretnie z etykiet na screenie
+            val = extract_val(r'Kliknięcia z Discover', text)
             if val: st.session_state.g_disc_klik = val
             
-            val = extract_val(r'Odsłony z Discover[\s]*([0-9 \xa0]+)')
+            val = extract_val(r'Odsłony z Discover', text)
             if val: st.session_state.g_disc_odslony = val
             
-            val = extract_val(r'Kliknięcia z Google[\s]*([0-9 \xa0]+)')
+            val = extract_val(r'Kliknięcia z Google', text)
             if val: st.session_state.g_wyniki_klik = val
             
-            val = extract_val(r'Odsłony z Google[\s]*([0-9 \xa0]+)')
+            val = extract_val(r'Odsłony z Google', text)
             if val: st.session_state.g_wyniki_odslony = val
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
@@ -87,7 +93,7 @@ if uploaded_ga_pdf is not None:
 
 st.markdown("---")
 
-# Sekcja dla klienta (połączona ze zmiennymi sesyjnymi)
+# Sekcja dla klienta
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
     firma = st.text_input("Raport dla firmy:", key="firma")
