@@ -47,43 +47,41 @@ if uploaded_ga_pdf is not None:
                 text += page.extract_text() + "\n"
             
             # Wyszukiwanie firmy
-            firma_match = re.search(r'Produkty i Firmy\s*-\s*(.*)', text)
+            firma_match = re.search(r'Produkty i Firmy\s*-\s*(.*)', text, re.IGNORECASE)
             if firma_match: st.session_state.firma = firma_match.group(1).strip()
             
             # Wyszukiwanie daty
             date_match = re.search(r'(\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4})', text, re.IGNORECASE)
             if date_match: st.session_state.okres = date_match.group(1).strip()
             
-            # Funkcja do wyszukiwania wartości nawet, jeśli jest w nowej linii (odporniejsza na formatowanie PDF)
-            def extract_val(keyword, text_to_search, is_percentage=False):
-                # Szuka słowa kluczowego, pozwala na znaki białe/nowej linii i wyłapuje liczbę (z opcjonalnym znakiem %)
-                pattern = keyword + r'\s*([\d\s]+(?:,[\d]+)?%?)' if is_percentage else keyword + r'\s*([\d\s]+)'
-                match = re.search(pattern, text_to_search)
+            # Elastyczne szukanie omijające problemy z polskimi znakami w PDF
+            def extract_val(pattern, text_to_search, is_percentage=False):
+                # pattern + dowolna ilość spacji/nowych linii + liczba (ewentualnie ze spacją tysięcy, przecinkiem i %)
+                full_pattern = pattern + r'[\s]*([\d \xa0]+(?:,[\d]+)?%?)' if is_percentage else pattern + r'[\s]*([\d \xa0]+)'
+                match = re.search(full_pattern, text_to_search, re.IGNORECASE)
                 if match:
-                    val = match.group(1).replace('\n', '').replace('\xa0', ' ').strip()
-                    return val
+                    return match.group(1).replace('\n', '').replace('\xa0', ' ').strip()
                 return ""
 
             val = extract_val(r'Zdarzenia', text)
             if val: st.session_state.zdarzenia = val
             
-            val = extract_val(r'Odsłony z GA4', text)
+            val = extract_val(r'Ods.ony\s*z\s*GA4', text)
             if val: st.session_state.odslony = val
             
-            val = extract_val(r'Zaangażowanie', text, is_percentage=True)
+            val = extract_val(r'Zaanga.owanie', text, is_percentage=True)
             if val: st.session_state.zaangazowanie = val
             
-            # Szukanie konkretnie z etykiet na screenie
-            val = extract_val(r'Kliknięcia z Discover', text)
+            val = extract_val(r'Klikni.cia\s*z\s*Discover', text)
             if val: st.session_state.g_disc_klik = val
             
-            val = extract_val(r'Odsłony z Discover', text)
+            val = extract_val(r'Ods.ony\s*z\s*Discover', text)
             if val: st.session_state.g_disc_odslony = val
             
-            val = extract_val(r'Kliknięcia z Google', text)
+            val = extract_val(r'Klikni.cia\s*z\s*Google', text)
             if val: st.session_state.g_wyniki_klik = val
             
-            val = extract_val(r'Odsłony z Google', text)
+            val = extract_val(r'Ods.ony\s*z\s*Google', text)
             if val: st.session_state.g_wyniki_odslony = val
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
