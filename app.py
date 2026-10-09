@@ -2,6 +2,7 @@ import streamlit as st
 from fpdf import FPDF
 import tempfile
 import os
+import base64
 from PIL import Image
 
 # Konfiguracja strony
@@ -213,13 +214,23 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Zasięgi na FB": fb_zasieg
     }, img_inne)
 
-    # --- Generowanie pliku ---
+    # --- Generowanie pliku, podgląd i pobieranie ---
     try:
-        pdf_bytes = pdf.output()
+        pdf_bytes = bytes(pdf.output())
         st.success("✨ Raport PDF został wygenerowany pomyślnie!")
+        
+        # Sekcja z interaktywnym podglądem PDF
+        st.markdown("### Podgląd raportu")
+        base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="700" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Przycisk pobierania pod podglądem
         st.download_button(
             label="Pobierz Raport PDF 📥",
-            data=bytes(pdf_bytes),
+            data=pdf_bytes,
             file_name=f"Raport_{firma.replace(' ', '_')}.pdf",
             mime="application/pdf",
             use_container_width=True
