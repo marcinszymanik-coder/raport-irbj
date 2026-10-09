@@ -50,47 +50,43 @@ if uploaded_ga_pdf is not None:
             firma_match = re.search(r'Produkty i Firmy\s*-\s*([^\n]+)', text, re.IGNORECASE)
             if firma_match: st.session_state.firma = firma_match.group(1).strip()
             
-            # Wyszukiwanie daty (np. 1 sty 2026-8 paź 2026) na oryginalnym tekście
-            date_match = re.search(r'(\d{1,2}\s+[^\s\d]{3,9}\s+\d{4}\s*-\s*\d{1,2}\s+[^\s\d]{3,9}\s+\d{4})', text, re.IGNORECASE)
+            # Poprawione wyszukiwanie daty
+            # Szuka wzorca typu "1 sty 2026-8 paź 2026" i ignoruje nowe linie pośrodku
+            date_match = re.search(r'(\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4}\s*-\s*\d{1,2}\s+[a-ząćęłńóśźż]+\s+\d{4})', text.replace('\n', ''), re.IGNORECASE)
             if date_match: st.session_state.okres = date_match.group(1).strip()
             
-            # --- MEGA ODPORNE WYSZUKIWANIE LICZB ---
-            # Usuwamy WSZYSTKIE białe znaki, spacje i entery z całego PDF
-            clean_text = re.sub(r'\s+', '', text).lower()
-            
-            def get_num(pattern):
-                # Szukamy wzoru w sklejonym tekście
-                m = re.search(pattern, clean_text)
+            # --- WYSZUKIWANIE LICZB ---
+            # Zastosowanie bardziej precyzyjnych wzorców powiązanych ze strukturą tabelaryczną
+            def get_num(pattern, text_data, is_percentage=False):
+                # Szukamy wystąpienia i formatujemy
+                m = re.search(pattern, text_data, re.IGNORECASE)
                 if m:
-                    num = m.group(1)
-                    # Formatuje tysiące ze spacją (np. 152936 -> 152 936) dla czytelności
-                    if num.isdigit() and len(num) >= 4:
-                        return f"{int(num):,}".replace(",", " ")
-                    return num
+                    # Wyczyszczenie liczby z dodatkowych znaków np. spacji przed formatowaniem
+                    raw_num = m.group(1).replace(' ', '').replace('\xa0', '').replace('\n', '')
+                    if is_percentage:
+                        return f"{raw_num}%"
+                    
+                    if raw_num.isdigit() and len(raw_num) >= 4:
+                         return f"{int(raw_num):,}".replace(",", " ")
+                    return raw_num
                 return ""
 
-            # Szukamy po fragmentach pozbawionych polskich liter
-            val = get_num(r'zdarzenia(\d+)')
-            if val: st.session_state.zdarzenia = val
+            # Usuwanie nowych linii może zepsuć niektóre wzorce, dlatego 
+            # w tym podejściu czyścimy wybiórczo do szukania konkretnych wartości
+            clean_text_for_search = text.replace('\n', '')
+
+            # Używamy uogólnionych nazw kolumn z raportu FAKRO (np. Odsłony z GA4, Odsłony z Discover)
+            st.session_state.zdarzenia = get_num(r'Zdarzenia\s*([\d \xa0]+)', clean_text_for_search)
+            st.session_state.odslony = get_num(r'Ods[łl]ony z GA4\s*([\d \xa0]+)', clean_text_for_search)
+            st.session_state.zaangazowanie = get_num(r'Zaanga[żz]owanie\s*([\d,]+)%', clean_text_for_search, is_percentage=True)
             
-            val = get_num(r'ga4(\d+)')
-            if val: st.session_state.odslony = val
+            # Wartości dla Google Discover
+            st.session_state.g_disc_klik = get_num(r'Klikni[ęe]cia z Discover\s*([\d \xa0]+)', clean_text_for_search)
+            st.session_state.g_disc_odslony = get_num(r'Ods[łl]ony z Discover\s*([\d \xa0]+)', clean_text_for_search)
             
-            # Zaangażowanie zawiera znak %, łapiemy z przecinkiem
-            m_zaang = re.search(r'zaanga[^\d]*(\d+(?:,\d+)?%)', clean_text)
-            if m_zaang: st.session_state.zaangazowanie = m_zaang.group(1)
-            
-            val = get_num(r'ciazdiscover(\d+)')
-            if val: st.session_state.g_disc_klik = val
-            
-            val = get_num(r'onyzdiscover(\d+)')
-            if val: st.session_state.g_disc_odslony = val
-            
-            val = get_num(r'ciazgoogle(\d+)')
-            if val: st.session_state.g_wyniki_klik = val
-            
-            val = get_num(r'onyzgoogle(\d+)')
-            if val: st.session_state.g_wyniki_odslony = val
+            # Wartości dla wyników z Google
+            st.session_state.g_wyniki_klik = get_num(r'Klikni[ęe]cia z Google\s*([\d \xa0]+)', clean_text_for_search)
+            st.session_state.g_wyniki_odslony = get_num(r'Ods[łl]ony z Google\s*([\d \xa0]+)', clean_text_for_search)
 
             st.session_state[f'processed_{uploaded_ga_pdf.name}'] = True
             st.rerun() 
