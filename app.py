@@ -18,12 +18,6 @@ font_bold_file = "DejaVuSans-Bold.ttf"   # opcjonalnie: prawdziwy pogrubiony kr�
 logo_svg = "logo-irbj-new.svg"
 logo_png = "logo.png"
 
-# Domyślne dane autora (uzupełnij raz, a będą wstawiane automatycznie)
-DOMYSLNY_AUTOR = ""
-DOMYSLNE_STANOWISKO = ""
-DOMYSLNY_EMAIL = ""
-DOMYSLNY_TELEFON = ""
-
 # Kolory i wymiary raportu (mm)
 PURPLE = (94, 66, 88)
 ORANGE = (255, 160, 0)
@@ -33,6 +27,29 @@ ML = 18            # margines lewy/prawy
 W = 174            # szerokość treści (210 - 2*18)
 LIMIT = 265        # dolna granica treści (nad stopką)
 TOP2 = 32          # początek treści na stronach 2+
+
+# ============================================================
+# LOGOWANIE (Google Workspace)
+# ============================================================
+DOZWOLONA_DOMENA = "budujemydom.pl"
+
+if not st.user.is_logged_in:
+    st.title("Generator Raportów - Produkty i Firmy")
+    st.write("Aby korzystać z aplikacji, zaloguj się firmowym kontem Google.")
+    st.button("🔐 Zaloguj przez Google", on_click=st.login, type="primary")
+    st.stop()
+
+email_user = str(st.user.get("email") or "").strip().lower()
+if not email_user.endswith("@" + DOZWOLONA_DOMENA) or st.user.get("email_verified") is False:
+    st.error(f"Dostęp tylko dla kont @{DOZWOLONA_DOMENA}. Zalogowano jako: {email_user or 'nieznane konto'}.")
+    st.button("Wyloguj", on_click=st.logout)
+    st.stop()
+
+with st.sidebar:
+    st.caption("Zalogowano jako")
+    st.write(f"**{st.user.get('name') or email_user}**")
+    st.caption(email_user)
+    st.button("Wyloguj", on_click=st.logout)
 
 # ============================================================
 # LOGO W INTERFEJSIE
@@ -55,10 +72,30 @@ keys_to_init = [
 for k in keys_to_init:
     if k not in st.session_state:
         st.session_state[k] = ""
-for k, v in {"autor": DOMYSLNY_AUTOR, "stanowisko": DOMYSLNE_STANOWISKO,
-             "email": DOMYSLNY_EMAIL, "telefon": DOMYSLNY_TELEFON}.items():
-    if k not in st.session_state:
+
+
+def pobierz_profil(email_adres):
+    """Dane autora z [uzytkownicy] w secrets; brakujące pola uzupełnia danymi z Google."""
+    wpis = {}
+    try:
+        surowy = st.secrets["uzytkownicy"].get(email_adres)
+        if surowy:
+            wpis = dict(surowy)
+    except Exception:
+        pass
+    return {
+        "autor": wpis.get("imie_nazwisko") or st.user.get("name") or "",
+        "stanowisko": wpis.get("stanowisko", ""),
+        "email": email_adres,
+        "telefon": wpis.get("telefon", ""),
+    }
+
+
+# Wczytaj dane zalogowanej osoby raz na sesję (potem można je edytować w formularzu)
+if st.session_state.get("_profil_dla") != email_user:
+    for k, v in pobierz_profil(email_user).items():
         st.session_state[k] = v
+    st.session_state["_profil_dla"] = email_user
 
 # ============================================================
 # PARSOWANIE PDF Z GOOGLE ANALYTICS
@@ -281,8 +318,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_text_color(120, 120, 120)
             # lewa strona: dane firmy
             self.set_xy(ML, 274)
-            self.multi_cell(110, 4.5, self.stopka_txt, align='L')
-            # prawa strona: data raportu + numer strony
+            self.multi_cell(100, 4.5, self.stopka_txt, align='L')
+            # prawa strona: data wykonania raportu + numer strony
             self.set_xy(ML + W - 70, 274)
             self.cell(70, 4.5, f"Data wykonania raportu: {self.data_txt}", align='R')
             self.set_xy(ML + W - 70, 278.5)
@@ -598,7 +635,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_xy(ML + 8, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*ORANGE)
-        pdf.cell(W - 12, 4, "MASZ PYTANIA? PROSZĘ O KONTAKT")
+        pdf.cell(W - 12, 4, "MASZ PYTANIA? SKONTAKTUJ SIĘ Z MNĄ")
         if autor.strip():
             pdf.set_xy(ML + 8, y + 9.5)
             pdf.set_font(FONT, 'B', 13)
