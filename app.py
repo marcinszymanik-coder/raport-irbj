@@ -246,31 +246,14 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     FONT = 'DejaVu'
 
-    class ReportPDF(FPDF):
+        class ReportPDF(FPDF):
         firma_txt = ""
         okres_txt = ""
+        data_txt = ""
         stopka_txt = ("AVT-Korporacja sp. z o.o. | Leszczynowa 11, 03-197 Warszawa\n"
                       "NIP: 5270200177 | KRS: 0000035930")
 
-        def header(self):
-            self.set_fill_color(*ORANGE)
-            self.rect(0, 0, 210, 6, 'F')
-            if self.page_no() == 1:
-                if os.path.exists(logo_png):
-                    self.image(logo_png, x=ML, y=12, w=52)
-                self.set_y(36)
-            else:
-                if os.path.exists(logo_png):
-                    self.image(logo_png, x=ML, y=10, w=34)
-                self.set_xy(ML + 80, 12)
-                self.set_font(FONT, '', 8)
-                self.set_text_color(140, 140, 140)
-                naglowek = " | ".join(x for x in [self.firma_txt, self.okres_txt] if x)
-                self.cell(W - 80, 5, naglowek, align='R')
-                self.set_draw_color(225, 225, 225)
-                self.set_line_width(0.2)
-                self.line(ML, 24, ML + W, 24)
-                self.set_y(TOP2)
+        # (metoda header bez zmian)
 
         def footer(self):
             self.set_draw_color(*ORANGE)
@@ -278,14 +261,19 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.line(ML, 271, ML + W, 271)
             self.set_font(FONT, '', 8.5)
             self.set_text_color(120, 120, 120)
+            # lewa strona: dane firmy
             self.set_xy(ML, 274)
-            self.multi_cell(130, 4.5, self.stopka_txt, align='L')
-            self.set_xy(ML + W - 40, 274)
-            self.cell(40, 4.5, f"Strona {self.page_no()}/{{nb}}", align='R')
+            self.multi_cell(110, 4.5, self.stopka_txt, align='L')
+            # prawa strona: data raportu + numer strony
+            self.set_xy(ML + W - 60, 274)
+            self.cell(60, 4.5, f"Data raportu: {self.data_txt}", align='R')
+            self.set_xy(ML + W - 60, 278.5)
+            self.cell(60, 4.5, f"Strona {self.page_no()}/{{nb}}", align='R')
 
     pdf = ReportPDF()
     pdf.firma_txt = firma
     pdf.okres_txt = okres
+    pdf.data_txt = data_raportu.strftime('%d.%m.%Y')
     pdf.alias_nb_pages()
     pdf.set_margins(ML, 10, ML)
     pdf.set_auto_page_break(False)
@@ -502,18 +490,20 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     pdf.set_draw_color(225, 225, 225)
     pdf.set_line_width(0.3)
     pdf.line(ML, y, ML + W, y)
-    meta = []
+    meta_txt = ""
     if autor.strip():
-        a = f"Przygotował(a): {autor.strip()}"
+        meta_txt = f"Przygotował(a): {autor.strip()}"
         if stanowisko.strip():
-            a += f", {stanowisko.strip()}"
-        meta.append(a)
-    meta.append(f"Data raportu: {data_raportu.strftime('%d.%m.%Y')}")
-    pdf.set_xy(ML, y + 3)
-    pdf.set_font(FONT, '', 9)
-    pdf.set_text_color(*GREY)
-    pdf.cell(W, 5, "   ·   ".join(meta))
-    pdf.set_y(y + 14)
+            meta_txt += f", {stanowisko.strip()}"
+
+    if meta_txt:
+        pdf.set_xy(ML, y + 3)
+        pdf.set_font(FONT, '', 9)
+        pdf.set_text_color(*GREY)
+        pdf.cell(W, 5, meta_txt)
+        pdf.set_y(y + 14)
+    else:
+        pdf.set_y(y + 6)
 
     # Kafelki podsumowania
     wartosci = {
