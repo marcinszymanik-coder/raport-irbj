@@ -1,4 +1,6 @@
 import streamlit as st
+from streamlit_oauth import OAuth2Component
+import requests
 from fpdf import FPDF
 import io
 import os
@@ -29,27 +31,64 @@ LIMIT = 265        # dolna granica treści (nad stopką)
 TOP2 = 32          # początek treści na stronach 2+
 
 # ============================================================
-# LOGOWANIE (Google Workspace)
+# LOGOWANIE OAUTH (Google Workspace)
 # ============================================================
 DOZWOLONA_DOMENA = "budujemydom.pl"
 
-if not st.user.is_logged_in:
-    st.title("Generator Raportów - Produkty i Firmy")
+# Konfiguracja komponentu OAuth
+oauth2 = OAuth2Component(
+    client_id=st.secrets["google_oauth"]["client_id"],
+    client_secret=st.secrets["google_oauth"]["client_secret"],
+    authorize_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
+    token_endpoint="https://oauth2.googleapis.com/token",
+    refresh_token_endpoint="https://oauth2.googleapis.com/token",
+    revoke_token_endpoint="https://oauth2.com/revoke"
+)
+
+# Jeśli użytkownik nie jest zalogowany
+if "user_email" not in st.session_state:
+    if os.path.exists(logo_svg):
+        st.image(logo_svg, width=250)
+    elif os.path.exists(logo_png):
+        st.image(logo_png, width=250)
+    else:
+        st.title("Produkty i Firmy")
+        
+    st.subheader("Wymagane logowanie")
     st.write("Aby korzystać z aplikacji, zaloguj się firmowym kontem Google.")
-    st.button("🔐 Zaloguj przez Google", on_click=st.login, type="primary")
+    
+    # Przycisk logowania
+    result = oauth2.authorize_button(
+        name="🔐 Zaloguj przez Google",
+        redirect_uri=st.secrets["google_oauth"]["redirect_uri"],
+        scope="openid email profile"
+    )
+    
+    # Przechwycenie powrotu z logowania
+    if result and "token" in result:
+        token = result["token"]["access_token"]
+        user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
+        
+        email = user_info.get("email", "").lower()
+        if email.endswith("@" + DOZWOLONA_DOMENA) and user_info.get("email_verified"):
+            st.session_state.user_email = email
+            st.session_state.user_name = user_info.get("name", "")
+            st.rerun()
+        else:
+            st.error(f"Dostęp tylko dla zweryfikowanych kont @{DOZWOLONA_DOMENA}. Próba logowania z adresu: {email}")
     st.stop()
 
-email_user = str(st.user.get("email") or "").strip().lower()
-if not email_user.endswith("@" + DOZWOLONA_DOMENA) or st.user.get("email_verified") is False:
-    st.error(f"Dostęp tylko dla kont @{DOZWOLONA_DOMENA}. Zalogowano jako: {email_user or 'nieznane konto'}.")
-    st.button("Wyloguj", on_click=st.logout)
-    st.stop()
+email_user = st.session_state.user_email
 
+# Pasek boczny użytkownika
 with st.sidebar:
     st.caption("Zalogowano jako")
-    st.write(f"**{st.user.get('name') or email_user}**")
+    st.write(f"**{st.session_state.get('user_name', email_user)}**")
     st.caption(email_user)
-    st.button("Wyloguj", on_click=st.logout)
+    if st.button("Wyloguj"):
+        del st.session_state["user_email"]
+        del st.session_state["user_name"]
+        st.rerun()
 
 # ============================================================
 # LOGO W INTERFEJSIE
@@ -75,7 +114,7 @@ for k in keys_to_init:
 
 
 def pobierz_profil(email_adres):
-    """Dane autora z [uzytkownicy] w secrets; brakujące pola uzupełnia danymi z Google."""
+    """Dane autora z [uzytkownicy] w secrets; brakujące pola uzupełnia danymi z profilu Google."""
     wpis = {}
     try:
         surowy = st.secrets["uzytkownicy"].get(email_adres)
@@ -84,7 +123,7 @@ def pobierz_profil(email_adres):
     except Exception:
         pass
     return {
-        "autor": wpis.get("imie_nazwisko") or st.user.get("name") or "",
+        "autor": wpis.get("imie_nazwisko") or st.session_state.get("user_name") or "",
         "stanowisko": wpis.get("stanowisko", ""),
         "email": email_adres,
         "telefon": wpis.get("telefon", ""),
@@ -100,18 +139,15 @@ if st.session_state.get("_profil_dla") != email_user:
 # ============================================================
 # PARSOWANIE PDF Z GOOGLE ANALYTICS
 # ============================================================
-# Liczba: grupy tysięcy dokładnie po 3 cyfry, przecinek, opcjonalnie %
 NUM_CORE = r"(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?)"
-NUM = r"(" + NUM_CORE + r")(?!\.)"   # (?!\.) odrzuca numerację tabeli "1."
+NUM = r"(" + NUM_CORE + r")(?!\.)"
 
-# Miesiąc z ewentualnymi spacjami między literami (PyPDF2 robi np. "pa ź")
 MONTH = r"[^\W\d_](?:\s*[^\W\d_]){2,8}"
 DATE = (r"\d{1,2}\s+" + MONTH + r"\s+\d{4}\s*[-–—]\s*"
         r"\d{1,2}\s+" + MONTH + r"\s+\d{4}")
 
 
 def label_re(label):
-    """Etykieta, w której między znakami mogą być dowolne białe znaki."""
     return r"\s*".join(re.escape(c) for c in label if not c.isspace())
 
 
@@ -121,16 +157,14 @@ def get_value(text, label):
 
 
 def get_period(text):
-    # 1) data sklejona z wartością GA4: "14 0511 sty 2026 - 8 pa ź  2026"
     m = re.search(label_re("Odsłony z GA4") + r"\s*" + NUM_CORE + r"(?P<d>" + DATE + r")",
                   text, re.IGNORECASE)
-    # 2) zwykła data
     if not m:
         m = re.search(r"(?<!\d)(?P<d>" + DATE + r")", text, re.IGNORECASE)
     if not m:
         return ""
     d = m.group("d")
-    d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)   # "pa ź" -> "paź"
+    d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)
     d = re.sub(r"\s*[-–—]\s*", " - ", d)
     return re.sub(r"\s+", " ", d).strip()
 
@@ -316,10 +350,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.line(ML, 271, ML + W, 271)
             self.set_font(FONT, '', 8.5)
             self.set_text_color(120, 120, 120)
-            # lewa strona: dane firmy
             self.set_xy(ML, 274)
             self.multi_cell(100, 4.5, self.stopka_txt, align='L')
-            # prawa strona: data wykonania raportu + numer strony
             self.set_xy(ML + W - 70, 274)
             self.cell(70, 4.5, f"Data wykonania raportu: {self.data_txt}", align='R')
             self.set_xy(ML + W - 70, 278.5)
@@ -335,7 +367,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     pdf.add_font('DejaVu', '', font_file)
     pdf.add_font('DejaVu', 'B', font_bold_file if os.path.exists(font_bold_file) else font_file)
 
-    # ---------- narzędzia ----------
     def new_page():
         pdf.add_page()
         pdf.set_y(TOP2)
@@ -407,7 +438,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.set_y(y + ch + 4)
 
     def place_row(items, col_w, centers, max_h):
-        """Umieszcza rząd grafik; skaluje do miejsca albo przenosi na nową stronę."""
         sizes = []
         for it in items:
             w, h = col_w, col_w * it["ratio"]
@@ -442,7 +472,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         if not kpis and not imgs:
             return
 
-        # Ile miejsca potrzebuje początek sekcji (nagłówek + opis + kafelki + zalążek grafiki)?
         need = 13
         if desc.strip():
             need += count_lines(desc, W - 2) * 4.8 + 4
@@ -453,7 +482,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             need += min(col_w * imgs[0]["ratio"], 60)
         ensure_space(need)
 
-        # Nagłówek sekcji
         y = pdf.get_y()
         pdf.set_fill_color(*PURPLE)
         pdf.rect(ML, y, W, 9, 'F')
@@ -465,7 +493,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.cell(W - 10, 9, title)
         pdf.set_y(y + 13)
 
-        # Opis
         if desc.strip():
             pdf.set_x(ML + 1)
             pdf.set_font(FONT, '', 9.5)
@@ -473,11 +500,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.multi_cell(W - 2, 4.8, desc.strip(), align='L')
             pdf.set_y(pdf.get_y() + 4)
 
-        # Kafelki
         if kpis:
             draw_cards(kpis)
 
-        # Grafiki
         if imgs:
             pdf.set_y(pdf.get_y() + 2)
             if two_cols:
@@ -492,9 +517,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(pdf.get_y() + 8)
 
     # ---------- STRONA TYTUŁOWA ----------
-    pdf.add_page()   # header rysuje logo Produkty i Firmy (x=ML, y=12, w=52)
+    pdf.add_page()   
 
-    # Wysokość logo "Produkty i Firmy" -> wyznacza oś, na której ląduje logo klienta
     pf_h = 11.0
     try:
         with Image.open(logo_png) as pim:
@@ -502,9 +526,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     except Exception:
         pass
     pf_top, pf_bottom = 12, 12 + pf_h
-    cy = pf_top + pf_h / 2          # środek pionowy logo PiF
+    cy = pf_top + pf_h / 2          
 
-    # Prawa strona: logo klienta (a gdy go nie ma, nazwa firmy) na wysokości logo PiF
     right_bottom = pf_bottom
     drawn = False
     if logo_klienta:
@@ -518,7 +541,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             lw, lh = 55, 55 * ratio
             if lh > 14:
                 lh, lw = 14, 14 / ratio
-            ly = cy - lh / 2        # wyśrodkowane względem logo PiF
+            ly = cy - lh / 2        
             pdf.image(lb, x=ML + W - lw, y=ly, w=lw, h=lh)
             right_bottom = max(pf_bottom, ly + lh)
             drawn = True
@@ -531,7 +554,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.multi_cell(90, 7, firma.strip(), align='R')
         right_bottom = max(pf_bottom, pdf.get_y())
 
-    # Okres pod logo klienta (lub nazwą), wyrównany do prawej
     if okres.strip():
         pdf.set_xy(ML, right_bottom + 2.5)
         pdf.set_font(FONT, '', 10)
@@ -541,7 +563,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     y = right_bottom + 6
 
-    # Linia rozdzielająca + autor (data jest w stopce)
     pdf.set_draw_color(225, 225, 225)
     pdf.set_line_width(0.3)
     pdf.line(ML, y, ML + W, y)
@@ -561,7 +582,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     else:
         pdf.set_y(y + 6)
 
-    # Kafelki podsumowania
     wartosci = {
         "Odsłony portalu": odslony, "Zdarzenia na portalu": zdarzenia,
         "Zaangażowanie": zaangazowanie, "Wyświetlenia zajawki": zajawka,
@@ -579,7 +599,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(pdf.get_y() + 9)
         draw_cards(kpi_cover, dark=True)
 
-    # Komentarz / podsumowanie
     if podsumowanie.strip():
         lines = count_lines(podsumowanie, W - 12, 10)
         bh = lines * 5 + 15
