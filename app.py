@@ -598,7 +598,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_xy(ML + 8, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*ORANGE)
-        pdf.cell(W - 12, 4, "MASZ PYTANIA? SKONTAKTUJ SIĘ Z NAMI")
+        pdf.cell(W - 12, 4, "MASZ PYTANIA? PROSZĘ O KONTAKT")
         if autor.strip():
             pdf.set_xy(ML + 8, y + 9.5)
             pdf.set_font(FONT, 'B', 13)
