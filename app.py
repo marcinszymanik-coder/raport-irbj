@@ -1,21 +1,42 @@
 import streamlit as st
 from fpdf import FPDF
-import tempfile
+import io
 import os
 import re
-import unicodedata
+from datetime import date
 import PyPDF2
 from PIL import Image
 from streamlit_pdf_viewer import pdf_viewer
 
-# Konfiguracja strony
+# ============================================================
+# USTAWIENIA
+# ============================================================
 st.set_page_config(page_title="Generator Raportów - Produkty i Firmy", page_icon="📊", layout="wide")
 
 font_file = "DejaVuSans.ttf"
+font_bold_file = "DejaVuSans-Bold.ttf"   # opcjonalnie: prawdziwy pogrubiony krój
 logo_svg = "logo-irbj-new.svg"
 logo_png = "logo.png"
 
-# Wyświetlanie logo w interfejsie webowym
+# Domyślne dane autora (uzupełnij raz, a będą wstawiane automatycznie)
+DOMYSLNY_AUTOR = ""
+DOMYSLNE_STANOWISKO = ""
+DOMYSLNY_EMAIL = ""
+DOMYSLNY_TELEFON = ""
+
+# Kolory i wymiary raportu (mm)
+PURPLE = (94, 66, 88)
+ORANGE = (255, 160, 0)
+LIGHT = (247, 244, 248)
+GREY = (100, 100, 100)
+ML = 18            # margines lewy/prawy
+W = 174            # szerokość treści (210 - 2*18)
+LIMIT = 265        # dolna granica treści (nad stopką)
+TOP2 = 32          # początek treści na stronach 2+
+
+# ============================================================
+# LOGO W INTERFEJSIE
+# ============================================================
 if os.path.exists(logo_svg):
     st.image(logo_svg, width=250)
 elif os.path.exists(logo_png):
@@ -25,21 +46,26 @@ else:
 
 st.markdown("### Generator Raportów Zasięgowych")
 
-# Inicjalizacja pustych zmiennych sesyjnych
+# Inicjalizacja zmiennych sesyjnych
 keys_to_init = [
     'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie',
     'zajawka', 'g_disc_odslony', 'g_disc_klik',
-    'g_wyniki_odslony', 'g_wyniki_klik', 'g_ai', 'fb_zasieg'
+    'g_wyniki_odslony', 'g_wyniki_klik', 'g_ai', 'fb_zasieg', 'podsumowanie'
 ]
 for k in keys_to_init:
     if k not in st.session_state:
         st.session_state[k] = ""
+for k, v in {"autor": DOMYSLNY_AUTOR, "stanowisko": DOMYSLNE_STANOWISKO,
+             "email": DOMYSLNY_EMAIL, "telefon": DOMYSLNY_TELEFON}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
-
-# --- FUNKCJE POMOCNICZE DO PARSOWANIA PDF ---
-# Liczba: grupy tysięcy dokładnie po 3 cyfry (np. "14 051", "1 418"), przecinek, opcjonalnie %
+# ============================================================
+# PARSOWANIE PDF Z GOOGLE ANALYTICS
+# ============================================================
+# Liczba: grupy tysięcy dokładnie po 3 cyfry, przecinek, opcjonalnie %
 NUM_CORE = r"(?:\d{1,3}(?:[ \u00a0]\d{3})+(?:,\d+)?%?|\d+(?:,\d+)?%?)"
-NUM = r"(" + NUM_CORE + r")(?!\.)"   # z zabezpieczeniem przed numeracją "1."
+NUM = r"(" + NUM_CORE + r")(?!\.)"   # (?!\.) odrzuca numerację tabeli "1."
 
 # Miesiąc z ewentualnymi spacjami między literami (PyPDF2 robi np. "pa ź")
 MONTH = r"[^\W\d_](?:\s*[^\W\d_]){2,8}"
@@ -61,19 +87,17 @@ def get_period(text):
     # 1) data sklejona z wartością GA4: "14 0511 sty 2026 - 8 pa ź  2026"
     m = re.search(label_re("Odsłony z GA4") + r"\s*" + NUM_CORE + r"(?P<d>" + DATE + r")",
                   text, re.IGNORECASE)
-    # 2) zwykła data (gdy nie jest sklejona z liczbą)
+    # 2) zwykła data
     if not m:
         m = re.search(r"(?<!\d)(?P<d>" + DATE + r")", text, re.IGNORECASE)
     if not m:
         return ""
     d = m.group("d")
-    # usuń spacje wewnątrz nazw miesięcy ("pa ź" -> "paź")
-    d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)
+    d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)   # "pa ź" -> "paź"
     d = re.sub(r"\s*[-–—]\s*", " - ", d)
     return re.sub(r"\s+", " ", d).strip()
 
 
-# --- AUTOMATYCZNE ZACZYTYWANIE Z PDF ---
 st.info("💡 Możesz zautomatyzować wpisywanie danych, wgrywając poniżej surowy raport PDF z Google Analytics. System sam wyciągnie z niego liczby i daty.")
 uploaded_ga_pdf = st.file_uploader("Wgraj raport PDF z Google Analytics (Opcjonalnie)", type=["pdf"])
 debug_pdf = st.checkbox("Pokaż surowy tekst wyciągnięty z PDF (diagnostyka)")
@@ -129,7 +153,9 @@ if st.session_state.get("_brak_pdf"):
 
 st.markdown("---")
 
-# Sekcja dla klienta
+# ============================================================
+# FORMULARZ
+# ============================================================
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
     firma = st.text_input("Raport dla firmy:", key="firma")
@@ -138,9 +164,33 @@ with col_firma2:
 with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
+st.markdown("#### Autor raportu")
+ca1, ca2, ca3, ca4, ca5 = st.columns([2, 2, 2, 1.5, 1.5])
+autor = ca1.text_input("Imię i nazwisko:", key="autor")
+stanowisko = ca2.text_input("Stanowisko:", key="stanowisko")
+email = ca3.text_input("E-mail:", key="email")
+telefon = ca4.text_input("Telefon:", key="telefon")
+data_raportu = ca5.date_input("Data raportu:", value=date.today())
+
 st.markdown("---")
-st.subheader("Wprowadź dane, opisy i grafiki dla poszczególnych sekcji")
-st.caption("Każda sekcja posiada domyślny, krótki opis, który możesz edytować. Puste pola nie pojawią się w raporcie.")
+st.subheader("Strona tytułowa: podsumowanie")
+KPI_OPTIONS = [
+    "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Wyświetlenia zajawki",
+    "Odsłony w Google Discover", "Kliknięcia z Google Discover",
+    "Odsłony w wyszukiwarce Google", "Kliknięcia z wyszukiwarki Google",
+    "Generatywna AI", "Zasięg na Facebooku",
+]
+kpi_wybrane = st.multiselect(
+    "Kafelki z najważniejszymi wynikami na pierwszej stronie (zalecane 3–4; puste wartości są pomijane):",
+    KPI_OPTIONS,
+    default=["Odsłony portalu", "Odsłony w wyszukiwarce Google", "Odsłony w Google Discover", "Zaangażowanie"],
+)
+podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
+
+st.markdown("---")
+st.subheader("Dane, opisy i grafiki dla poszczególnych sekcji")
+st.caption("Sekcje bez danych i bez grafik nie pojawią się w raporcie.")
+UKLAD = ["1 w rzędzie", "2 kolumny"]
 
 # --- SEKCJA 1 ---
 st.markdown("#### 1. Portal Produkty i Firmy")
@@ -148,11 +198,11 @@ desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają
 col1a, col1b = st.columns(2)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia")
 odslony = col1b.text_input("Odsłony (Portal):", key="odslony")
-
 col1c, col1d = st.columns(2)
 zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie")
 zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", key="zajawka")
 img_portal = st.file_uploader("Dodaj grafiki (Portal Produkty i Firmy)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
+uklad_portal = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u1")
 st.markdown("---")
 
 # --- SEKCJA 2 ---
@@ -162,6 +212,7 @@ col2a, col2b = st.columns(2)
 g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony")
 g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik")
 img_disc = st.file_uploader("Dodaj grafiki (Google Discover)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p2")
+uklad_disc = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u2")
 st.markdown("---")
 
 # --- SEKCJA 3 ---
@@ -172,241 +223,385 @@ g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_o
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik")
 g_ai = col3c.text_input("Generatywna AI:", key="g_ai")
 img_wyniki = st.file_uploader("Dodaj grafiki (Wyniki Wyszukiwania i AI)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p3")
+uklad_wyniki = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u3")
 st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Media społecznościowe")
 desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70)
 fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg")
-img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe) - automatyczny układ 2 kolumn", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
+img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
+uklad_inne = st.radio("Układ grafik:", UKLAD, horizontal=True, index=1, key="u4")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# ============================================================
 # GENERATOR PDF
+# ============================================================
 if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container_width=True):
+
+    if not os.path.exists(font_file):
+        st.error(f"Brak pliku {font_file} w folderze aplikacji. Bez niego polskie znaki nie zadziałają.")
+        st.stop()
+
+    FONT = 'DejaVu'
+
     class ReportPDF(FPDF):
+        firma_txt = ""
+        okres_txt = ""
+        stopka_txt = ("AVT-Korporacja sp. z o.o. | Leszczynowa 11, 03-197 Warszawa\n"
+                      "NIP: 5270200177 | KRS: 0000035930")
+
         def header(self):
-            self.set_fill_color(255, 160, 0)
+            self.set_fill_color(*ORANGE)
             self.rect(0, 0, 210, 6, 'F')
-
-            if os.path.exists(logo_png):
-                self.image(logo_png, x=15, y=10, w=50)
-
-            self.ln(20)
+            if self.page_no() == 1:
+                if os.path.exists(logo_png):
+                    self.image(logo_png, x=ML, y=12, w=52)
+                self.set_y(36)
+            else:
+                if os.path.exists(logo_png):
+                    self.image(logo_png, x=ML, y=10, w=34)
+                self.set_xy(ML + 80, 12)
+                self.set_font(FONT, '', 8)
+                self.set_text_color(140, 140, 140)
+                naglowek = " | ".join(x for x in [self.firma_txt, self.okres_txt] if x)
+                self.cell(W - 80, 5, naglowek, align='R')
+                self.set_draw_color(225, 225, 225)
+                self.set_line_width(0.2)
+                self.line(ML, 24, ML + W, 24)
+                self.set_y(TOP2)
 
         def footer(self):
-            self.set_y(-30)
-            self.set_draw_color(255, 160, 0)
+            self.set_draw_color(*ORANGE)
             self.set_line_width(0.5)
-            self.line(20, self.get_y(), 190, self.get_y())
-
-            self.set_y(-25)
-            self.set_font(FONT, '', 9)
+            self.line(ML, 271, ML + W, 271)
+            self.set_font(FONT, '', 8.5)
             self.set_text_color(120, 120, 120)
-            stopka = (
-                "AVT-Korporacja sp. z o.o. | Leszczynowa 11, 03-197 Warszawa\n"
-                "NIP: 5270200177 | KRS: 0000035930"
-            )
-            self.multi_cell(0, 5, stopka, align='C')
-
-            self.set_y(-15)
-            self.set_font(FONT, '', 8)
-            self.cell(0, 5, f"Strona {self.page_no()}/{{nb}}", align='R')
-
-    # Nazwa czcionki (fallback na Arial, gdy brak pliku DejaVu)
-    FONT = 'DejaVu' if os.path.exists(font_file) else 'Arial'
+            self.set_xy(ML, 274)
+            self.multi_cell(130, 4.5, self.stopka_txt, align='L')
+            self.set_xy(ML + W - 40, 274)
+            self.cell(40, 4.5, f"Strona {self.page_no()}/{{nb}}", align='R')
 
     pdf = ReportPDF()
+    pdf.firma_txt = firma
+    pdf.okres_txt = okres
     pdf.alias_nb_pages()
-    pdf.set_auto_page_break(auto=True, margin=35)
+    pdf.set_margins(ML, 10, ML)
+    pdf.set_auto_page_break(False)
+    pdf.add_font('DejaVu', '', font_file)
+    pdf.add_font('DejaVu', 'B', font_bold_file if os.path.exists(font_bold_file) else font_file)
 
-    if os.path.exists(font_file):
-        pdf.add_font('DejaVu', '', font_file, uni=True)
-        pdf.add_font('DejaVu', 'B', font_file, uni=True)
-        pdf.set_font(FONT, '', 12)
-    else:
-        st.warning("Brak pliku DejaVuSans.ttf. Polskie znaki mogą nie działać prawidłowo.")
-        pdf.set_font(FONT, '', 12)
+    # ---------- narzędzia ----------
+    def new_page():
+        pdf.add_page()
+        pdf.set_y(TOP2)
 
-    pdf.add_page()
+    def ensure_space(h):
+        if pdf.get_y() + h > LIMIT:
+            new_page()
 
-    # --- NAGŁÓWEK RAPORTU ---
-    pdf.set_y(35)
+    def count_lines(txt, width, size=9.5):
+        pdf.set_font(FONT, '', size)
+        total = 0
+        for para in str(txt).split("\n"):
+            line, n = "", 1
+            for wd in para.split():
+                t = (line + " " + wd).strip()
+                if pdf.get_string_width(t) <= width - 2:
+                    line = t
+                else:
+                    n += 1
+                    line = wd
+            total += n
+        return total
 
-    pdf.set_font(FONT, 'B', 20)
-    pdf.set_text_color(94, 66, 88)
-    pdf.cell(120, 10, f"Raport kampanii dla {firma}", ln=1)
+    def prep_images(files):
+        out = []
+        for f in files or []:
+            try:
+                f.seek(0)
+                im = Image.open(f)
+                if im.mode in ("RGBA", "LA", "P"):
+                    im = im.convert("RGBA")
+                    bg = Image.new("RGB", im.size, (255, 255, 255))
+                    bg.paste(im, mask=im.split()[-1])
+                    im = bg
+                else:
+                    im = im.convert("RGB")
+                if im.width > 1800:
+                    im = im.resize((1800, int(im.height * 1800 / im.width)), Image.LANCZOS)
+                buf = io.BytesIO()
+                im.save(buf, "JPEG", quality=90)
+                buf.seek(0)
+                out.append({"buf": buf, "ratio": im.height / im.width})
+            except Exception:
+                continue
+        return out
 
-    if okres:
-        pdf.set_font(FONT, '', 12)
-        pdf.set_text_color(140, 140, 140)
-        pdf.cell(120, 8, f"Okres: {okres}", ln=1)
+    def draw_cards(items, dark=False):
+        gap, ch = 4, 25
+        for start in range(0, len(items), 4):
+            row = items[start:start + 4]
+            n = len(row)
+            cw = min((W - gap * (n - 1)) / n, 58)
+            ensure_space(ch)
+            y = pdf.get_y()
+            for i, (label, value) in enumerate(row):
+                x = ML + i * (cw + gap)
+                pdf.set_fill_color(*(PURPLE if dark else LIGHT))
+                pdf.rect(x, y, cw, ch, 'F')
+                pdf.set_fill_color(*ORANGE)
+                pdf.rect(x, y, cw, 1.2, 'F')
+                pdf.set_xy(x, y + 4)
+                pdf.set_font(FONT, 'B', 17)
+                pdf.set_text_color(*((255, 255, 255) if dark else PURPLE))
+                pdf.cell(cw, 9, value, align='C')
+                pdf.set_xy(x + 2, y + 14)
+                pdf.set_font(FONT, '', 8.5)
+                pdf.set_text_color(*((235, 228, 236) if dark else GREY))
+                pdf.multi_cell(cw - 4, 4, label, align='C')
+            pdf.set_y(y + ch + 4)
 
+    def place_row(items, col_w, centers, max_h):
+        """Umieszcza rząd grafik; skaluje do miejsca albo przenosi na nową stronę."""
+        sizes = []
+        for it in items:
+            w, h = col_w, col_w * it["ratio"]
+            if h > max_h:
+                w, h = max_h / it["ratio"], max_h
+            sizes.append((w, h))
+        row_h = max(h for _, h in sizes)
+        s = 1.0
+        avail = LIMIT - pdf.get_y()
+        if row_h > avail:
+            if avail / row_h >= 0.7 and avail >= 50:
+                s = avail / row_h
+            else:
+                new_page()
+                avail = LIMIT - pdf.get_y()
+                if row_h > avail:
+                    s = avail / row_h
+        y = pdf.get_y()
+        for it, (w, h), cx in zip(items, sizes, centers):
+            w, h = w * s, h * s
+            x = cx - w / 2
+            it["buf"].seek(0)
+            pdf.image(it["buf"], x=x, y=y, w=w, h=h)
+            pdf.set_draw_color(220, 220, 220)
+            pdf.set_line_width(0.2)
+            pdf.rect(x, y, w, h)
+        pdf.set_y(y + row_h * s + 6)
+
+    def render_section(title, desc, kpis, files, two_cols):
+        kpis = [(l, str(v).strip()) for l, v in kpis if str(v).strip()]
+        imgs = prep_images(files)
+        if not kpis and not imgs:
+            return
+
+        # Ile miejsca potrzebuje początek sekcji (nagłówek + opis + kafelki + zalążek grafiki)?
+        need = 13
+        if desc.strip():
+            need += count_lines(desc, W - 2) * 4.8 + 4
+        if kpis:
+            need += ((len(kpis) + 3) // 4) * 29
+        if imgs:
+            col_w = 83 if two_cols else 170
+            need += min(col_w * imgs[0]["ratio"], 60)
+        ensure_space(need)
+
+        # Nagłówek sekcji
+        y = pdf.get_y()
+        pdf.set_fill_color(*PURPLE)
+        pdf.rect(ML, y, W, 9, 'F')
+        pdf.set_fill_color(*ORANGE)
+        pdf.rect(ML, y, 3, 9, 'F')
+        pdf.set_xy(ML + 7, y)
+        pdf.set_font(FONT, 'B', 12)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(W - 10, 9, title)
+        pdf.set_y(y + 13)
+
+        # Opis
+        if desc.strip():
+            pdf.set_x(ML + 1)
+            pdf.set_font(FONT, '', 9.5)
+            pdf.set_text_color(*GREY)
+            pdf.multi_cell(W - 2, 4.8, desc.strip(), align='L')
+            pdf.set_y(pdf.get_y() + 4)
+
+        # Kafelki
+        if kpis:
+            draw_cards(kpis)
+
+        # Grafiki
+        if imgs:
+            pdf.set_y(pdf.get_y() + 2)
+            if two_cols:
+                for i in range(0, len(imgs), 2):
+                    row = imgs[i:i + 2]
+                    centers = [ML + 41.5, ML + W - 41.5][:len(row)]
+                    place_row(row, 83, centers, 150)
+            else:
+                for it in imgs:
+                    place_row([it], 170, [105], 200)
+
+        pdf.set_y(pdf.get_y() + 8)
+
+    # ---------- STRONA TYTUŁOWA ----------
+    pdf.add_page()   # header ustawia y = 36
+    y0 = 36
+
+    # Logo klienta (prawy górny róg)
+    logo_bottom = y0
     if logo_klienta:
         try:
-            img = Image.open(logo_klienta)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-                img.save(tmpfile.name, "PNG")
-                client_logo_path = tmpfile.name
-
-            max_w, max_h = 50, 18
-            img_w, img_h = img.size
-            ratio = img_h / img_w
-
-            calc_w = max_w
-            calc_h = calc_w * ratio
-
-            if calc_h > max_h:
-                calc_h = max_h
-                calc_w = calc_h / ratio
-
-            logo_x = 195 - calc_w
-            pdf.image(client_logo_path, x=logo_x, y=35, w=calc_w, h=calc_h)
+            logo_klienta.seek(0)
+            lim = Image.open(logo_klienta).convert("RGBA")
+            lb = io.BytesIO()
+            lim.save(lb, "PNG")
+            lb.seek(0)
+            ratio = lim.height / lim.width
+            lw, lh = 52, 52 * ratio
+            if lh > 20:
+                lh, lw = 20, 20 / ratio
+            pdf.image(lb, x=ML + W - lw, y=y0, w=lw, h=lh)
+            logo_bottom = y0 + lh
         except Exception:
             pass
 
-    pdf.ln(12)
+    pdf.set_xy(ML, y0)
+    pdf.set_font(FONT, 'B', 9)
+    pdf.set_text_color(*ORANGE)
+    pdf.cell(110, 5, "RAPORT Z DZIAŁAŃ")
+    pdf.set_xy(ML, y0 + 6)
+    pdf.set_font(FONT, 'B', 24)
+    pdf.set_text_color(*PURPLE)
+    pdf.multi_cell(115, 11, firma if firma.strip() else "—", align='L')
+    y = pdf.get_y()
+    if okres:
+        pdf.set_xy(ML, y + 1)
+        pdf.set_font(FONT, '', 11)
+        pdf.set_text_color(140, 140, 140)
+        pdf.cell(115, 7, f"Okres: {okres}")
+        y = pdf.get_y() + 7
+    y = max(y, logo_bottom) + 4
 
-    def add_section_with_images(title, description, data_dict, uploaded_files, two_columns=False):
-        filtered_data = {label: value for label, value in data_dict.items() if str(value).strip() != ""}
+    # Linia rozdzielająca + autor/data
+    pdf.set_draw_color(225, 225, 225)
+    pdf.set_line_width(0.3)
+    pdf.line(ML, y, ML + W, y)
+    meta = []
+    if autor.strip():
+        a = f"Przygotował(a): {autor.strip()}"
+        if stanowisko.strip():
+            a += f", {stanowisko.strip()}"
+        meta.append(a)
+    meta.append(f"Data raportu: {data_raportu.strftime('%d.%m.%Y')}")
+    pdf.set_xy(ML, y + 3)
+    pdf.set_font(FONT, '', 9)
+    pdf.set_text_color(*GREY)
+    pdf.cell(W, 5, "   ·   ".join(meta))
+    pdf.set_y(y + 14)
 
-        if pdf.get_y() > 230:
-            pdf.add_page()
+    # Kafelki podsumowania
+    wartosci = {
+        "Odsłony portalu": odslony, "Zdarzenia na portalu": zdarzenia,
+        "Zaangażowanie": zaangazowanie, "Wyświetlenia zajawki": zajawka,
+        "Odsłony w Google Discover": g_disc_odslony, "Kliknięcia z Google Discover": g_disc_klik,
+        "Odsłony w wyszukiwarce Google": g_wyniki_odslony,
+        "Kliknięcia z wyszukiwarki Google": g_wyniki_klik,
+        "Generatywna AI": g_ai, "Zasięg na Facebooku": fb_zasieg,
+    }
+    kpi_cover = [(n, str(wartosci[n]).strip()) for n in kpi_wybrane if str(wartosci.get(n, "")).strip()]
+    if kpi_cover:
+        pdf.set_font(FONT, 'B', 11)
+        pdf.set_text_color(*PURPLE)
+        pdf.set_x(ML)
+        pdf.cell(W, 6, "Najważniejsze wyniki")
+        pdf.set_y(pdf.get_y() + 9)
+        draw_cards(kpi_cover, dark=True)
 
-        pdf.set_fill_color(94, 66, 88)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font(FONT, 'B', 12)
-        pdf.cell(0, 10, f"  {title}", ln=1, fill=True)
+    # Komentarz / podsumowanie
+    if podsumowanie.strip():
+        lines = count_lines(podsumowanie, W - 12, 10)
+        bh = lines * 5 + 15
+        ensure_space(bh)
+        y = pdf.get_y()
+        pdf.set_fill_color(*LIGHT)
+        pdf.rect(ML, y, W, bh, 'F')
+        pdf.set_fill_color(*ORANGE)
+        pdf.rect(ML, y, 2.5, bh, 'F')
+        pdf.set_xy(ML + 7, y + 3.5)
+        pdf.set_font(FONT, 'B', 8.5)
+        pdf.set_text_color(*ORANGE)
+        pdf.cell(60, 4, "PODSUMOWANIE")
+        pdf.set_xy(ML + 7, y + 9)
+        pdf.set_font(FONT, '', 10)
+        pdf.set_text_color(70, 70, 70)
+        pdf.multi_cell(W - 12, 5, podsumowanie.strip(), align='L')
+        pdf.set_y(y + bh + 4)
 
-        if description.strip():
-            pdf.ln(3)
+    pdf.set_y(pdf.get_y() + 6)
+
+    # ---------- SEKCJE ----------
+    render_section("Portal Produkty i Firmy", desc_portal, [
+        ("Zdarzenia na portalu", zdarzenia),
+        ("Odsłony", odslony),
+        ("Zaangażowanie", zaangazowanie),
+        ("Wyświetlenia zajawki artykułu", zajawka),
+    ], img_portal, uklad_portal == UKLAD[1])
+
+    render_section("Google Discover", desc_disc, [
+        ("Odsłony", g_disc_odslony),
+        ("Kliknięcia", g_disc_klik),
+    ], img_disc, uklad_disc == UKLAD[1])
+
+    render_section("Wyniki wyszukiwania w wyszukiwarce Google", desc_wyniki, [
+        ("Odsłony", g_wyniki_odslony),
+        ("Kliknięcia", g_wyniki_klik),
+        ("Generatywna AI", g_ai),
+    ], img_wyniki, uklad_wyniki == UKLAD[1])
+
+    render_section("Media społecznościowe", desc_inne, [
+        ("Zasięg na Facebooku", fb_zasieg),
+    ], img_inne, uklad_inne == UKLAD[1])
+
+    # ---------- KARTA KONTAKTOWA ----------
+    if autor.strip() or email.strip() or telefon.strip():
+        ensure_space(36)
+        y = pdf.get_y() + 2
+        pdf.set_fill_color(*LIGHT)
+        pdf.rect(ML, y, W, 31, 'F')
+        pdf.set_fill_color(*ORANGE)
+        pdf.rect(ML, y, 2.5, 31, 'F')
+        pdf.set_xy(ML + 8, y + 3.5)
+        pdf.set_font(FONT, 'B', 8.5)
+        pdf.set_text_color(*ORANGE)
+        pdf.cell(W - 12, 4, "MASZ PYTANIA? SKONTAKTUJ SIĘ Z NAMI")
+        if autor.strip():
+            pdf.set_xy(ML + 8, y + 9.5)
+            pdf.set_font(FONT, 'B', 13)
+            pdf.set_text_color(*PURPLE)
+            pdf.cell(W - 12, 7, autor.strip())
+        if stanowisko.strip():
+            pdf.set_xy(ML + 8, y + 17)
             pdf.set_font(FONT, '', 10)
-            pdf.set_text_color(100, 100, 100)
-            pdf.set_x(12)
-            pdf.multi_cell(186, 5, description.strip(), align='L')
-            pdf.ln(4)
-        else:
-            pdf.ln(2)
-
-        if filtered_data:
-            height_needed = len(filtered_data) * 10
-            if pdf.get_y() + height_needed > 260:
-                pdf.add_page()
-
-            pdf.set_fill_color(252, 252, 252)
-            pdf.set_draw_color(230, 230, 230)
-            pdf.set_line_width(0.2)
+            pdf.set_text_color(*GREY)
+            pdf.cell(W - 12, 5, stanowisko.strip())
+        kontakt = []
+        if email.strip():
+            kontakt.append(f"E-mail: {email.strip()}")
+        if telefon.strip():
+            kontakt.append(f"Tel.: {telefon.strip()}")
+        if kontakt:
+            pdf.set_xy(ML + 8, y + 23.5)
+            pdf.set_font(FONT, '', 9.5)
             pdf.set_text_color(70, 70, 70)
+            pdf.cell(W - 12, 5, "      ".join(kontakt))
+        pdf.set_y(y + 35)
 
-            for label, value in filtered_data.items():
-                pdf.set_font(FONT, '', 11)
-                pdf.cell(120, 10, f"   {label}", border='B', fill=True)
-                pdf.set_font(FONT, 'B', 11)
-                pdf.cell(70, 10, f"{value}  ", border='B', ln=1, align='R', fill=True)
-            pdf.ln(6)
-
-        if uploaded_files:
-            if not two_columns:
-                for file in uploaded_files:
-                    try:
-                        img = Image.open(file)
-                        img = img.convert('RGB')
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
-                            img.save(tmpfile.name, "JPEG")
-                            temp_path = tmpfile.name
-
-                        max_w, max_h = 170, 200
-                        img_w, img_h = img.size
-                        ratio = img_h / img_w
-
-                        calc_w = max_w
-                        calc_h = calc_w * ratio
-
-                        if calc_h > max_h:
-                            calc_h = max_h
-                            calc_w = calc_h / ratio
-
-                        if pdf.get_y() + calc_h > 260:
-                            pdf.add_page()
-
-                        x_pos = (210 - calc_w) / 2
-                        pdf.image(temp_path, x=x_pos, w=calc_w, h=calc_h)
-                        pdf.set_y(pdf.get_y() + calc_h + 8)
-                    except Exception:
-                        pass
-            else:
-                for i in range(0, len(uploaded_files), 2):
-                    try:
-                        file1 = uploaded_files[i]
-                        file2 = uploaded_files[i + 1] if i + 1 < len(uploaded_files) else None
-
-                        def process_img(f):
-                            img = Image.open(f).convert('RGB')
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmpfile:
-                                img.save(tmpfile.name, "JPEG")
-                                return tmpfile.name, img.size
-
-                        path1, (w1, h1) = process_img(file1)
-
-                        max_w_col = 80
-                        max_h_col = 150
-
-                        calc_w1 = max_w_col
-                        calc_h1 = calc_w1 * (h1 / w1)
-                        if calc_h1 > max_h_col:
-                            calc_h1 = max_h_col
-                            calc_w1 = calc_h1 / (h1 / w1)
-
-                        calc_h2 = 0
-                        if file2:
-                            path2, (w2, h2) = process_img(file2)
-                            calc_w2 = max_w_col
-                            calc_h2 = calc_w2 * (h2 / w2)
-                            if calc_h2 > max_h_col:
-                                calc_h2 = max_h_col
-                                calc_w2 = calc_h2 / (h2 / w2)
-
-                        row_h = max(calc_h1, calc_h2)
-
-                        if pdf.get_y() + row_h > 260:
-                            pdf.add_page()
-
-                        current_y = pdf.get_y()
-
-                        x_pos1 = 52.5 - (calc_w1 / 2)
-                        pdf.image(path1, x=x_pos1, y=current_y, w=calc_w1, h=calc_h1)
-
-                        if file2:
-                            x_pos2 = 157.5 - (calc_w2 / 2)
-                            pdf.image(path2, x=x_pos2, y=current_y, w=calc_w2, h=calc_h2)
-
-                        pdf.set_y(current_y + row_h + 8)
-                    except Exception:
-                        pass
-        pdf.ln(6)
-
-    add_section_with_images("Portal Produkty i Firmy", desc_portal, {
-        "Liczba zdarzeń na portalu": zdarzenia,
-        "Odsłony": odslony,
-        "Zaangażowanie": zaangazowanie,
-        "Liczba wyświetleń zajawki o artykule": zajawka
-    }, img_portal)
-
-    add_section_with_images("Google Discover", desc_disc, {
-        "Odsłony": g_disc_odslony,
-        "Kliknięcia": g_disc_klik
-    }, img_disc)
-
-    add_section_with_images("Wyniki wyszukiwania w wyszukiwarce Google", desc_wyniki, {
-        "Odsłony": g_wyniki_odslony,
-        "Kliknięcia": g_wyniki_klik,
-        "Generatywna AI": g_ai
-    }, img_wyniki)
-
-    add_section_with_images("Media społecznościowe", desc_inne, {
-        "Zasięgi na FB": fb_zasieg
-    }, img_inne, two_columns=True)
-
+    # ---------- WYNIK ----------
     try:
         pdf_bytes = bytes(pdf.output())
         st.success("✨ Raport PDF został wygenerowany pomyślnie!")
@@ -415,11 +610,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf_viewer(input=pdf_bytes, width=700)
 
         st.markdown("<br>", unsafe_allow_html=True)
-
+        nazwa_pliku = re.sub(r"[^\w\-]+", "_", firma.strip()) or "raport"
         st.download_button(
             label="Pobierz Raport PDF 📥",
             data=pdf_bytes,
-            file_name=f"Raport_{firma.replace(' ', '_')}.pdf",
+            file_name=f"Raport_{nazwa_pliku}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
