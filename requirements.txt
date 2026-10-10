@@ -5,3 +5,4 @@ requests
 streamlit-pdf-viewer
 PyPDF2
 streamlit-oauth
+httpx
