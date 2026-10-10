@@ -246,14 +246,32 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     FONT = 'DejaVu'
 
-        class ReportPDF(FPDF):
+    class ReportPDF(FPDF):
         firma_txt = ""
         okres_txt = ""
         data_txt = ""
         stopka_txt = ("AVT-Korporacja sp. z o.o. | Leszczynowa 11, 03-197 Warszawa\n"
                       "NIP: 5270200177 | KRS: 0000035930")
 
-        # (metoda header bez zmian)
+        def header(self):
+            self.set_fill_color(*ORANGE)
+            self.rect(0, 0, 210, 6, 'F')
+            if self.page_no() == 1:
+                if os.path.exists(logo_png):
+                    self.image(logo_png, x=ML, y=12, w=52)
+                self.set_y(36)
+            else:
+                if os.path.exists(logo_png):
+                    self.image(logo_png, x=ML, y=10, w=34)
+                self.set_xy(ML + 80, 12)
+                self.set_font(FONT, '', 8)
+                self.set_text_color(140, 140, 140)
+                naglowek = " | ".join(x for x in [self.firma_txt, self.okres_txt] if x)
+                self.cell(W - 80, 5, naglowek, align='R')
+                self.set_draw_color(225, 225, 225)
+                self.set_line_width(0.2)
+                self.line(ML, 24, ML + W, 24)
+                self.set_y(TOP2)
 
         def footer(self):
             self.set_draw_color(*ORANGE)
@@ -436,7 +454,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
         pdf.set_y(pdf.get_y() + 8)
 
-        # ---------- STRONA TYTUŁOWA ----------
+    # ---------- STRONA TYTUŁOWA ----------
     pdf.add_page()   # header rysuje logo Produkty i Firmy (x=ML, y=12, w=52)
 
     # Wysokość logo "Produkty i Firmy" -> wyznacza oś, na której ląduje logo klienta
@@ -486,10 +504,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     y = right_bottom + 6
 
-    # Linia rozdzielająca + autor/data
+    # Linia rozdzielająca + autor (data jest w stopce)
     pdf.set_draw_color(225, 225, 225)
     pdf.set_line_width(0.3)
     pdf.line(ML, y, ML + W, y)
+
     meta_txt = ""
     if autor.strip():
         meta_txt = f"Przygotował(a): {autor.strip()}"
