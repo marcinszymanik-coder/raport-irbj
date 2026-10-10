@@ -448,12 +448,22 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
         pdf.set_y(pdf.get_y() + 8)
 
-    # ---------- STRONA TYTUŁOWA ----------
-    pdf.add_page()   # header ustawia y = 36
-    y0 = 36
+        # ---------- STRONA TYTUŁOWA ----------
+    pdf.add_page()   # header rysuje logo Produkty i Firmy (x=ML, y=12, w=52)
 
-    # Logo klienta (prawy górny róg)
-    logo_bottom = y0
+    # Wysokość logo "Produkty i Firmy" -> wyznacza oś, na której ląduje logo klienta
+    pf_h = 11.0
+    try:
+        with Image.open(logo_png) as pim:
+            pf_h = 52 * pim.height / pim.width
+    except Exception:
+        pass
+    pf_top, pf_bottom = 12, 12 + pf_h
+    cy = pf_top + pf_h / 2          # środek pionowy logo PiF
+
+    # Prawa strona: logo klienta (a gdy go nie ma, nazwa firmy) na wysokości logo PiF
+    right_bottom = pf_bottom
+    drawn = False
     if logo_klienta:
         try:
             logo_klienta.seek(0)
@@ -462,30 +472,31 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             lim.save(lb, "PNG")
             lb.seek(0)
             ratio = lim.height / lim.width
-            lw, lh = 52, 52 * ratio
-            if lh > 20:
-                lh, lw = 20, 20 / ratio
-            pdf.image(lb, x=ML + W - lw, y=y0, w=lw, h=lh)
-            logo_bottom = y0 + lh
+            lw, lh = 55, 55 * ratio
+            if lh > 14:
+                lh, lw = 14, 14 / ratio
+            ly = cy - lh / 2        # wyśrodkowane względem logo PiF
+            pdf.image(lb, x=ML + W - lw, y=ly, w=lw, h=lh)
+            right_bottom = max(pf_bottom, ly + lh)
+            drawn = True
         except Exception:
-            pass
+            drawn = False
+    if not drawn and firma.strip():
+        pdf.set_font(FONT, 'B', 15)
+        pdf.set_text_color(*PURPLE)
+        pdf.set_xy(ML + W - 90, cy - 3.5)
+        pdf.multi_cell(90, 7, firma.strip(), align='R')
+        right_bottom = max(pf_bottom, pdf.get_y())
 
-    pdf.set_xy(ML, y0)
-    pdf.set_font(FONT, 'B', 9)
-    pdf.set_text_color(*ORANGE)
-    pdf.cell(110, 5, "RAPORT Z DZIAŁAŃ")
-    pdf.set_xy(ML, y0 + 6)
-    pdf.set_font(FONT, 'B', 24)
-    pdf.set_text_color(*PURPLE)
-    pdf.multi_cell(115, 11, firma if firma.strip() else "—", align='L')
-    y = pdf.get_y()
-    if okres:
-        pdf.set_xy(ML, y + 1)
-        pdf.set_font(FONT, '', 11)
+    # Okres pod logo klienta (lub nazwą), wyrównany do prawej
+    if okres.strip():
+        pdf.set_xy(ML, right_bottom + 2.5)
+        pdf.set_font(FONT, '', 10)
         pdf.set_text_color(140, 140, 140)
-        pdf.cell(115, 7, f"Okres: {okres}")
-        y = pdf.get_y() + 7
-    y = max(y, logo_bottom) + 4
+        pdf.cell(W, 5, f"Okres: {okres.strip()}", align='R')
+        right_bottom = right_bottom + 2.5 + 5
+
+    y = right_bottom + 6
 
     # Linia rozdzielająca + autor/data
     pdf.set_draw_color(225, 225, 225)
