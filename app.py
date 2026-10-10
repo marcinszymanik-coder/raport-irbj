@@ -170,7 +170,7 @@ autor = ca1.text_input("Imię i nazwisko:", key="autor")
 stanowisko = ca2.text_input("Stanowisko:", key="stanowisko")
 email = ca3.text_input("E-mail:", key="email")
 telefon = ca4.text_input("Telefon:", key="telefon")
-data_raportu = ca5.date_input("Data raportu:", value=date.today())
+data_raportu = ca5.date_input("Data wykonania raportu:", value=date.today())
 
 st.markdown("---")
 st.subheader("Strona tytułowa: podsumowanie")
@@ -283,10 +283,10 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_xy(ML, 274)
             self.multi_cell(110, 4.5, self.stopka_txt, align='L')
             # prawa strona: data raportu + numer strony
-            self.set_xy(ML + W - 60, 274)
-            self.cell(60, 4.5, f"Data raportu: {self.data_txt}", align='R')
-            self.set_xy(ML + W - 60, 278.5)
-            self.cell(60, 4.5, f"Strona {self.page_no()}/{{nb}}", align='R')
+            self.set_xy(ML + W - 70, 274)
+            self.cell(70, 4.5, f"Data wykonania raportu: {self.data_txt}", align='R')
+            self.set_xy(ML + W - 70, 278.5)
+            self.cell(70, 4.5, f"Strona {self.page_no()}/{{nb}}", align='R')
 
     pdf = ReportPDF()
     pdf.firma_txt = firma
