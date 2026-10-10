@@ -15,8 +15,21 @@ from streamlit_pdf_viewer import pdf_viewer
 # ============================================================
 st.set_page_config(page_title="Generator Raportów - Produkty i Firmy", page_icon="📊", layout="wide")
 
+# Wstrzykiwany CSS - czerwona ramka dla pustych pól (z ukrytym placeholderem)
+st.markdown("""
+<style>
+/* Obramowanie dla niewypełnionych pól tekstowych */
+div[data-testid="stTextInput"] input:placeholder-shown,
+div[data-testid="stTextArea"] textarea:placeholder-shown {
+    border: 2px solid #ff4b4b !important;
+    border-radius: 6px;
+    box-shadow: 0 0 4px rgba(255, 75, 75, 0.4) !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 font_file = "DejaVuSans.ttf"
-font_bold_file = "DejaVuSans-Bold.ttf"   # opcjonalnie: prawdziwy pogrubiony krój
+font_bold_file = "DejaVuSans-Bold.ttf"   
 logo_svg = "logo-irbj-new.svg"
 logo_png = "logo.png"
 
@@ -25,17 +38,16 @@ PURPLE = (94, 66, 88)
 ORANGE = (255, 160, 0)
 LIGHT = (247, 244, 248)
 GREY = (100, 100, 100)
-ML = 18            # margines lewy/prawy
-W = 174            # szerokość treści (210 - 2*18)
-LIMIT = 265        # dolna granica treści (nad stopką)
-TOP2 = 32          # początek treści na stronach 2+
+ML = 18            
+W = 174            
+LIMIT = 265        
+TOP2 = 32          
 
 # ============================================================
 # LOGOWANIE OAUTH (Google Workspace)
 # ============================================================
 DOZWOLONA_DOMENA = "budujemydom.pl"
 
-# Konfiguracja komponentu OAuth
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_oauth"]["client_id"],
     client_secret=st.secrets["google_oauth"]["client_secret"],
@@ -45,7 +57,6 @@ oauth2 = OAuth2Component(
     revoke_token_endpoint="https://oauth2.com/revoke"
 )
 
-# Jeśli użytkownik nie jest zalogowany
 if "user_email" not in st.session_state:
     if os.path.exists(logo_svg):
         st.image(logo_svg, width=250)
@@ -57,14 +68,12 @@ if "user_email" not in st.session_state:
     st.subheader("Wymagane logowanie")
     st.write("Aby korzystać z aplikacji, zaloguj się firmowym kontem Google.")
     
-    # Przycisk logowania
     result = oauth2.authorize_button(
         name="🔐 Zaloguj przez Google",
         redirect_uri=st.secrets["google_oauth"]["redirect_uri"],
         scope="openid email profile"
     )
     
-    # Przechwycenie powrotu z logowania
     if result and "token" in result:
         token = result["token"]["access_token"]
         user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
@@ -80,7 +89,6 @@ if "user_email" not in st.session_state:
 
 email_user = st.session_state.user_email
 
-# Pasek boczny użytkownika
 with st.sidebar:
     st.caption("Zalogowano jako")
     st.write(f"**{st.session_state.get('user_name', email_user)}**")
@@ -102,7 +110,6 @@ else:
 
 st.markdown("### Generator Raportów Zasięgowych")
 
-# Inicjalizacja zmiennych sesyjnych
 keys_to_init = [
     'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie',
     'zajawka', 'g_disc_odslony', 'g_disc_klik',
@@ -114,7 +121,6 @@ for k in keys_to_init:
 
 
 def pobierz_profil(email_adres):
-    """Dane autora z [uzytkownicy] w secrets; brakujące pola uzupełnia danymi z profilu Google."""
     wpis = {}
     try:
         surowy = st.secrets["uzytkownicy"].get(email_adres)
@@ -130,7 +136,6 @@ def pobierz_profil(email_adres):
     }
 
 
-# Wczytaj dane zalogowanej osoby raz na sesję (potem można je edytować w formularzu)
 if st.session_state.get("_profil_dla") != email_user:
     for k, v in pobierz_profil(email_user).items():
         st.session_state[k] = v
@@ -229,18 +234,19 @@ st.markdown("---")
 # ============================================================
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
-    firma = st.text_input("Raport dla firmy:", key="firma")
+    # Dodany placeholder=" " uaktywnia ramkę CSS, gdy pole jest puste
+    firma = st.text_input("Raport dla firmy:", key="firma", placeholder=" ")
 with col_firma2:
-    okres = st.text_input("Okres kampanii:", key="okres")
+    okres = st.text_input("Okres kampanii:", key="okres", placeholder=" ")
 with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
 st.markdown("#### Autor raportu")
 ca1, ca2, ca3, ca4, ca5 = st.columns([2, 2, 2, 1.5, 1.5])
-autor = ca1.text_input("Imię i nazwisko:", key="autor")
-stanowisko = ca2.text_input("Stanowisko:", key="stanowisko")
-email = ca3.text_input("E-mail:", key="email")
-telefon = ca4.text_input("Telefon:", key="telefon")
+autor = ca1.text_input("Imię i nazwisko:", key="autor", placeholder=" ")
+stanowisko = ca2.text_input("Stanowisko:", key="stanowisko", placeholder=" ")
+email = ca3.text_input("E-mail:", key="email", placeholder=" ")
+telefon = ca4.text_input("Telefon:", key="telefon", placeholder=" ")
 data_raportu = ca5.date_input("Data wykonania raportu:", value=date.today())
 
 st.markdown("---")
@@ -256,6 +262,7 @@ kpi_wybrane = st.multiselect(
     KPI_OPTIONS,
     default=["Odsłony portalu", "Odsłony w wyszukiwarce Google", "Odsłony w Google Discover", "Zaangażowanie"],
 )
+# Komentarz jest opcjonalny, brak atrybutu placeholder=" " uchroni go przed czerwoną ramką
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
 
 st.markdown("---")
@@ -265,42 +272,42 @@ UKLAD = ["1 w rzędzie", "2 kolumny"]
 
 # --- SEKCJA 1 ---
 st.markdown("#### 1. Portal Produkty i Firmy")
-desc_portal = st.text_area("Opis sekcji (Portal):", "Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.", height=70)
+desc_portal = st.text_area("Opis sekcji (Portal):", value="Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.", height=70, placeholder=" ")
 col1a, col1b = st.columns(2)
-zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia")
-odslony = col1b.text_input("Odsłony (Portal):", key="odslony")
+zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia", placeholder=" ")
+odslony = col1b.text_input("Odsłony (Portal):", key="odslony", placeholder=" ")
 col1c, col1d = st.columns(2)
-zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie")
-zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", key="zajawka")
+zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie", placeholder=" ")
+zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", key="zajawka", placeholder=" ")
 img_portal = st.file_uploader("Dodaj grafiki (Portal Produkty i Firmy)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 uklad_portal = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u1")
 st.markdown("---")
 
 # --- SEKCJA 2 ---
 st.markdown("#### 2. Google Discover")
-desc_disc = st.text_area("Opis sekcji (Discover):", "Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.", height=70)
+desc_disc = st.text_area("Opis sekcji (Discover):", value="Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.", height=70, placeholder=" ")
 col2a, col2b = st.columns(2)
-g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony")
-g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik")
+g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony", placeholder=" ")
+g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik", placeholder=" ")
 img_disc = st.file_uploader("Dodaj grafiki (Google Discover)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p2")
 uklad_disc = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u2")
 st.markdown("---")
 
 # --- SEKCJA 3 ---
 st.markdown("#### 3. Wyniki wyszukiwania w wyszukiwarce Google")
-desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", "Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.", height=70)
+desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", value="Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.", height=70, placeholder=" ")
 col3a, col3b, col3c = st.columns(3)
-g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony")
-g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik")
-g_ai = col3c.text_input("Generatywna AI:", key="g_ai")
+g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony", placeholder=" ")
+g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik", placeholder=" ")
+g_ai = col3c.text_input("Generatywna AI:", key="g_ai", placeholder=" ")
 img_wyniki = st.file_uploader("Dodaj grafiki (Wyniki Wyszukiwania i AI)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p3")
 uklad_wyniki = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u3")
 st.markdown("---")
 
 # --- SEKCJA 4 ---
 st.markdown("#### 4. Media społecznościowe")
-desc_inne = st.text_area("Opis sekcji (Social Media):", "Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70)
-fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg")
+desc_inne = st.text_area("Opis sekcji (Social Media):", value="Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70, placeholder=" ")
+fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg", placeholder=" ")
 img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
 uklad_inne = st.radio("Układ grafik:", UKLAD, horizontal=True, index=1, key="u4")
 
