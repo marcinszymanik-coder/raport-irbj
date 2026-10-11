@@ -34,29 +34,30 @@ logo_svg = "logo-irbj-new.svg"
 logo_png = "logo.png"
 
 # ------------------------------------------------------------
-# MOTYWY: logo + kolorystyka raportu (kolory RGB)
-#   main   - nagłówki sekcji, ciemne kafelki, tytuły, wartości
+# MOTYWY: kolorystyka raportu (RGB) + dostępne logo
+#   main   - górny pasek, nagłówki sekcji, ciemne kafelki, tytuły, wartości
 #   accent - paski akcentowe na kafelkach i nagłówkach
 #   light  - tło jasnych kafelków i ramek
-#   bar    - górny pasek strony i linia w stopce
+#   bar    - górny pasek strony
+#   line   - linia w stopce
 #   label  - małe napisy akcentowe (np. PODSUMOWANIE)
-# "logo_baza" to nazwa pliku BEZ rozszerzenia (.png/.jpg/.jpeg)
+#   loga   - {nazwa w menu: (nazwa pliku BEZ rozszerzenia, szerokość na okładce mm, szerokość na kolejnych stronach mm)}
 # ------------------------------------------------------------
 MOTYWY = {
     "Produkty i Firmy": {
-        "logo_baza": "logo", "w_cover": 52, "w_small": 34,
         "main": (94, 66, 88), "accent": (255, 160, 0), "light": (247, 244, 248),
-        "bar": (255, 160, 0), "label": (255, 160, 0),
+        "bar": (255, 160, 0), "line": (255, 160, 0), "label": (255, 160, 0),
+        "loga": {
+            "Produkty i Firmy": ("logo", 52, 34),
+        },
     },
-    "budujemydom.pl (czerwone)": {
-        "logo_baza": "logo-budujemydom-czerwone", "w_cover": 46, "w_small": 30,
-        "main": (229, 38, 33), "accent": (100, 110, 117), "light": (247, 247, 247),
-        "bar": (229, 38, 33), "label": (229, 38, 33),
-    },
-    "budujemydom.pl (szare)": {
-        "logo_baza": "logo-budujemydom-szare", "w_cover": 46, "w_small": 30,
-        "main": (100, 110, 117), "accent": (170, 177, 182), "light": (246, 247, 247),
-        "bar": (100, 110, 117), "label": (100, 110, 117),
+    "budujemydom.pl": {
+        "main": (100, 110, 117), "accent": (229, 38, 33), "light": (244, 245, 246),
+        "bar": (100, 110, 117), "line": (229, 38, 33), "label": (229, 38, 33),
+        "loga": {
+            "Czerwone": ("logo-budujemydom-czerwone", 46, 30),
+            "Szare": ("logo-budujemydom-szare", 46, 30),
+        },
     },
 }
 
@@ -263,16 +264,25 @@ if st.session_state.get("_brak_pdf"):
 st.markdown("---")
 
 # ============================================================
-# WYGLĄD RAPORTU (logo + kolorystyka)
+# WYGLĄD RAPORTU (kolorystyka + logo)
 # ============================================================
 st.markdown("#### Wygląd raportu")
-wybor_motywu = st.radio("Logo i kolorystyka raportu:", list(MOTYWY.keys()), horizontal=True, key="motyw")
+wybor_motywu = st.radio("Wersja raportu (kolorystyka):", list(MOTYWY.keys()), horizontal=True, key="motyw")
 motyw = MOTYWY[wybor_motywu]
-logo_raport = znajdz_plik(motyw["logo_baza"])
+loga = motyw["loga"]
+
+if len(loga) > 1:
+    wybor_logo = st.radio("Logo:", list(loga.keys()), horizontal=True, key="logo_wariant")
+else:
+    wybor_logo = list(loga.keys())[0]
+logo_baza, w_cover, w_small = loga[wybor_logo]
+
+logo_raport = znajdz_plik(logo_baza)
 if logo_raport is None:
-    st.warning(f"Nie znaleziono pliku logo „{motyw['logo_baza']}” (.png/.jpg). "
+    st.warning(f"Nie znaleziono pliku logo „{logo_baza}” (.png/.jpg). "
                f"Dodaj go do repozytorium obok app.py. Na razie użyję logo Produkty i Firmy.")
     logo_raport = znajdz_plik("logo")
+    w_cover, w_small = 52, 34
 if logo_raport:
     st.image(logo_raport, width=170)
 
@@ -280,6 +290,7 @@ MAIN = motyw["main"]
 ACCENT = motyw["accent"]
 LIGHT = motyw["light"]
 BAR = motyw["bar"]
+LINE = motyw["line"]
 LABEL = motyw["label"]
 
 st.markdown("---")
@@ -391,11 +402,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.rect(0, 0, 210, 6, 'F')
             if self.page_no() == 1:
                 if logo_raport:
-                    self.image(logo_raport, x=ML, y=12, w=motyw["w_cover"])
+                    self.image(logo_raport, x=ML, y=12, w=w_cover)
                 self.set_y(36)
             else:
                 if logo_raport:
-                    self.image(logo_raport, x=ML, y=10, w=motyw["w_small"])
+                    self.image(logo_raport, x=ML, y=10, w=w_small)
                 self.set_xy(ML + 80, 12)
                 self.set_font(FONT, '', 8)
                 self.set_text_color(140, 140, 140)
@@ -407,7 +418,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 self.set_y(TOP2)
 
         def footer(self):
-            self.set_draw_color(*BAR)
+            self.set_draw_color(*LINE)
             self.set_line_width(0.5)
             self.line(ML, 271, ML + W, 271)
             self.set_font(FONT, '', 8.5)
@@ -585,7 +596,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     pf_h = 11.0
     try:
         with Image.open(logo_raport) as pim:
-            pf_h = motyw["w_cover"] * pim.height / pim.width
+            pf_h = w_cover * pim.height / pim.width
     except Exception:
         pass
     pf_top, pf_bottom = 12, 12 + pf_h
