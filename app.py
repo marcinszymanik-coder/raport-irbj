@@ -29,19 +29,52 @@ div[data-testid="stTextArea"] textarea:placeholder-shown {
 """, unsafe_allow_html=True)
 
 font_file = "DejaVuSans.ttf"
-font_bold_file = "DejaVuSans-Bold.ttf"   
+font_bold_file = "DejaVuSans-Bold.ttf"
 logo_svg = "logo-irbj-new.svg"
 logo_png = "logo.png"
 
-# Kolory i wymiary raportu (mm)
-PURPLE = (94, 66, 88)
-ORANGE = (255, 160, 0)
-LIGHT = (247, 244, 248)
+# ------------------------------------------------------------
+# MOTYWY: logo + kolorystyka raportu (kolory RGB)
+#   main   - nagłówki sekcji, ciemne kafelki, tytuły, wartości
+#   accent - paski akcentowe na kafelkach i nagłówkach
+#   light  - tło jasnych kafelków i ramek
+#   bar    - górny pasek strony i linia w stopce
+#   label  - małe napisy akcentowe (np. PODSUMOWANIE)
+# "logo_baza" to nazwa pliku BEZ rozszerzenia (.png/.jpg/.jpeg)
+# ------------------------------------------------------------
+MOTYWY = {
+    "Produkty i Firmy": {
+        "logo_baza": "logo", "w_cover": 52, "w_small": 34,
+        "main": (94, 66, 88), "accent": (255, 160, 0), "light": (247, 244, 248),
+        "bar": (255, 160, 0), "label": (255, 160, 0),
+    },
+    "budujemydom.pl (czerwone)": {
+        "logo_baza": "logo-budujemydom-czerwone", "w_cover": 46, "w_small": 30,
+        "main": (229, 38, 33), "accent": (100, 110, 117), "light": (247, 247, 247),
+        "bar": (229, 38, 33), "label": (229, 38, 33),
+    },
+    "budujemydom.pl (szare)": {
+        "logo_baza": "logo-budujemydom-szare", "w_cover": 46, "w_small": 30,
+        "main": (100, 110, 117), "accent": (170, 177, 182), "light": (246, 247, 247),
+        "bar": (100, 110, 117), "label": (100, 110, 117),
+    },
+}
+
+
+def znajdz_plik(baza):
+    """Zwraca nazwę istniejącego pliku baza.png/.jpg/.jpeg albo None."""
+    for ext in (".png", ".jpg", ".jpeg"):
+        if os.path.exists(baza + ext):
+            return baza + ext
+    return None
+
+
+# Stałe niezależne od motywu
 GREY = (100, 100, 100)
-ML = 18            
-W = 174            
-LIMIT = 265        
-TOP2 = 32          
+ML = 18            # margines lewy/prawy
+W = 174            # szerokość treści (210 - 2*18)
+LIMIT = 265        # dolna granica treści (nad stopką)
+TOP2 = 32          # początek treści na stronach 2+
 
 # ============================================================
 # LOGOWANIE OAUTH (Google Workspace)
@@ -54,7 +87,7 @@ oauth2 = OAuth2Component(
     authorize_endpoint="https://accounts.google.com/o/oauth2/v2/auth",
     token_endpoint="https://oauth2.googleapis.com/token",
     refresh_token_endpoint="https://oauth2.googleapis.com/token",
-    revoke_token_endpoint="https://oauth2.com/revoke"
+    revoke_token_endpoint="https://oauth2.googleapis.com/revoke"
 )
 
 if "user_email" not in st.session_state:
@@ -64,20 +97,20 @@ if "user_email" not in st.session_state:
         st.image(logo_png, width=250)
     else:
         st.title("Produkty i Firmy")
-        
+
     st.subheader("Wymagane logowanie")
     st.write("Aby korzystać z aplikacji, zaloguj się firmowym kontem Google.")
-    
+
     result = oauth2.authorize_button(
         name="🔐 Zaloguj przez Google",
         redirect_uri=st.secrets["google_oauth"]["redirect_uri"],
         scope="openid email profile"
     )
-    
+
     if result and "token" in result:
         token = result["token"]["access_token"]
         user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
-        
+
         email = user_info.get("email", "").lower()
         if email.endswith("@" + DOZWOLONA_DOMENA) and user_info.get("email_verified"):
             st.session_state.user_email = email
@@ -94,8 +127,8 @@ with st.sidebar:
     st.write(f"**{st.session_state.get('user_name', email_user)}**")
     st.caption(email_user)
     if st.button("Wyloguj"):
-        del st.session_state["user_email"]
-        del st.session_state["user_name"]
+        st.session_state.pop("user_email", None)
+        st.session_state.pop("user_name", None)
         st.rerun()
 
 # ============================================================
@@ -230,6 +263,28 @@ if st.session_state.get("_brak_pdf"):
 st.markdown("---")
 
 # ============================================================
+# WYGLĄD RAPORTU (logo + kolorystyka)
+# ============================================================
+st.markdown("#### Wygląd raportu")
+wybor_motywu = st.radio("Logo i kolorystyka raportu:", list(MOTYWY.keys()), horizontal=True, key="motyw")
+motyw = MOTYWY[wybor_motywu]
+logo_raport = znajdz_plik(motyw["logo_baza"])
+if logo_raport is None:
+    st.warning(f"Nie znaleziono pliku logo „{motyw['logo_baza']}” (.png/.jpg). "
+               f"Dodaj go do repozytorium obok app.py. Na razie użyję logo Produkty i Firmy.")
+    logo_raport = znajdz_plik("logo")
+if logo_raport:
+    st.image(logo_raport, width=170)
+
+MAIN = motyw["main"]
+ACCENT = motyw["accent"]
+LIGHT = motyw["light"]
+BAR = motyw["bar"]
+LABEL = motyw["label"]
+
+st.markdown("---")
+
+# ============================================================
 # FORMULARZ
 # ============================================================
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
@@ -332,15 +387,15 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                       "NIP: 5270200177 | KRS: 0000035930")
 
         def header(self):
-            self.set_fill_color(*ORANGE)
+            self.set_fill_color(*BAR)
             self.rect(0, 0, 210, 6, 'F')
             if self.page_no() == 1:
-                if os.path.exists(logo_png):
-                    self.image(logo_png, x=ML, y=12, w=52)
+                if logo_raport:
+                    self.image(logo_raport, x=ML, y=12, w=motyw["w_cover"])
                 self.set_y(36)
             else:
-                if os.path.exists(logo_png):
-                    self.image(logo_png, x=ML, y=10, w=34)
+                if logo_raport:
+                    self.image(logo_raport, x=ML, y=10, w=motyw["w_small"])
                 self.set_xy(ML + 80, 12)
                 self.set_font(FONT, '', 8)
                 self.set_text_color(140, 140, 140)
@@ -352,7 +407,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 self.set_y(TOP2)
 
         def footer(self):
-            self.set_draw_color(*ORANGE)
+            self.set_draw_color(*BAR)
             self.set_line_width(0.5)
             self.line(ML, 271, ML + W, 271)
             self.set_font(FONT, '', 8.5)
@@ -430,17 +485,17 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             y = pdf.get_y()
             for i, (label, value) in enumerate(row):
                 x = ML + i * (cw + gap)
-                pdf.set_fill_color(*(PURPLE if dark else LIGHT))
+                pdf.set_fill_color(*(MAIN if dark else LIGHT))
                 pdf.rect(x, y, cw, ch, 'F')
-                pdf.set_fill_color(*ORANGE)
+                pdf.set_fill_color(*ACCENT)
                 pdf.rect(x, y, cw, 1.2, 'F')
                 pdf.set_xy(x, y + 4)
                 pdf.set_font(FONT, 'B', 17)
-                pdf.set_text_color(*((255, 255, 255) if dark else PURPLE))
+                pdf.set_text_color(*((255, 255, 255) if dark else MAIN))
                 pdf.cell(cw, 9, value, align='C')
                 pdf.set_xy(x + 2, y + 14)
                 pdf.set_font(FONT, '', 8.5)
-                pdf.set_text_color(*((235, 228, 236) if dark else GREY))
+                pdf.set_text_color(*((240, 240, 240) if dark else GREY))
                 pdf.multi_cell(cw - 4, 4, label, align='C')
             pdf.set_y(y + ch + 4)
 
@@ -490,9 +545,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         ensure_space(need)
 
         y = pdf.get_y()
-        pdf.set_fill_color(*PURPLE)
+        pdf.set_fill_color(*MAIN)
         pdf.rect(ML, y, W, 9, 'F')
-        pdf.set_fill_color(*ORANGE)
+        pdf.set_fill_color(*ACCENT)
         pdf.rect(ML, y, 3, 9, 'F')
         pdf.set_xy(ML + 7, y)
         pdf.set_font(FONT, 'B', 12)
@@ -524,16 +579,17 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(pdf.get_y() + 8)
 
     # ---------- STRONA TYTUŁOWA ----------
-    pdf.add_page()   
+    pdf.add_page()
 
+    # Wysokość logo raportu -> wyznacza oś, na której ląduje logo klienta
     pf_h = 11.0
     try:
-        with Image.open(logo_png) as pim:
-            pf_h = 52 * pim.height / pim.width
+        with Image.open(logo_raport) as pim:
+            pf_h = motyw["w_cover"] * pim.height / pim.width
     except Exception:
         pass
     pf_top, pf_bottom = 12, 12 + pf_h
-    cy = pf_top + pf_h / 2          
+    cy = pf_top + pf_h / 2
 
     right_bottom = pf_bottom
     drawn = False
@@ -548,7 +604,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             lw, lh = 55, 55 * ratio
             if lh > 14:
                 lh, lw = 14, 14 / ratio
-            ly = cy - lh / 2        
+            ly = cy - lh / 2
             pdf.image(lb, x=ML + W - lw, y=ly, w=lw, h=lh)
             right_bottom = max(pf_bottom, ly + lh)
             drawn = True
@@ -556,7 +612,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             drawn = False
     if not drawn and firma.strip():
         pdf.set_font(FONT, 'B', 15)
-        pdf.set_text_color(*PURPLE)
+        pdf.set_text_color(*MAIN)
         pdf.set_xy(ML + W - 90, cy - 3.5)
         pdf.multi_cell(90, 7, firma.strip(), align='R')
         right_bottom = max(pf_bottom, pdf.get_y())
@@ -600,7 +656,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     kpi_cover = [(n, str(wartosci[n]).strip()) for n in kpi_wybrane if str(wartosci.get(n, "")).strip()]
     if kpi_cover:
         pdf.set_font(FONT, 'B', 11)
-        pdf.set_text_color(*PURPLE)
+        pdf.set_text_color(*MAIN)
         pdf.set_x(ML)
         pdf.cell(W, 6, "Najważniejsze wyniki")
         pdf.set_y(pdf.get_y() + 9)
@@ -613,11 +669,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         y = pdf.get_y()
         pdf.set_fill_color(*LIGHT)
         pdf.rect(ML, y, W, bh, 'F')
-        pdf.set_fill_color(*ORANGE)
+        pdf.set_fill_color(*ACCENT)
         pdf.rect(ML, y, 2.5, bh, 'F')
         pdf.set_xy(ML + 7, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
-        pdf.set_text_color(*ORANGE)
+        pdf.set_text_color(*LABEL)
         pdf.cell(60, 4, "PODSUMOWANIE")
         pdf.set_xy(ML + 7, y + 9)
         pdf.set_font(FONT, '', 10)
@@ -656,16 +712,16 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         y = pdf.get_y() + 2
         pdf.set_fill_color(*LIGHT)
         pdf.rect(ML, y, W, 31, 'F')
-        pdf.set_fill_color(*ORANGE)
+        pdf.set_fill_color(*ACCENT)
         pdf.rect(ML, y, 2.5, 31, 'F')
         pdf.set_xy(ML + 8, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
-        pdf.set_text_color(*ORANGE)
+        pdf.set_text_color(*LABEL)
         pdf.cell(W - 12, 4, "MASZ PYTANIA? SKONTAKTUJ SIĘ Z MNĄ")
         if autor.strip():
             pdf.set_xy(ML + 8, y + 9.5)
             pdf.set_font(FONT, 'B', 13)
-            pdf.set_text_color(*PURPLE)
+            pdf.set_text_color(*MAIN)
             pdf.cell(W - 12, 7, autor.strip())
         if stanowisko.strip():
             pdf.set_xy(ML + 8, y + 17)
