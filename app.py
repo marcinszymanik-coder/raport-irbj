@@ -45,6 +45,7 @@ logo_png = "logo.png"
 # ------------------------------------------------------------
 MOTYWY = {
     "Produkty i Firmy": {
+        "portal": "Portal Produkty i Firmy",
         "main": (94, 66, 88), "accent": (255, 160, 0), "light": (247, 244, 248),
         "bar": (255, 160, 0), "line": (255, 160, 0), "label": (255, 160, 0),
         "loga": {
@@ -52,6 +53,7 @@ MOTYWY = {
         },
     },
     "budujemydom.pl": {
+        "portal": "Portal budujemydom.pl",
         "main": (100, 110, 117), "accent": (229, 38, 33), "light": (244, 245, 246),
         "bar": (100, 110, 117), "line": (229, 38, 33), "label": (229, 38, 33),
         "loga": {
@@ -287,6 +289,7 @@ if logo_raport:
     st.image(logo_raport, width=170)
 
 MAIN = motyw["main"]
+NAZWA_PORTALU = motyw["portal"]
 ACCENT = motyw["accent"]
 LIGHT = motyw["light"]
 BAR = motyw["bar"]
@@ -337,7 +340,7 @@ st.caption("Sekcje bez danych i bez grafik nie pojawią się w raporcie.")
 UKLAD = ["1 w rzędzie", "2 kolumny"]
 
 # --- SEKCJA 1 ---
-st.markdown("#### 1. Portal Produkty i Firmy")
+st.markdown(f"#### 1. {NAZWA_PORTALU}")
 desc_portal = st.text_area("Opis sekcji (Portal):", value="Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.", height=70, placeholder=" ")
 col1a, col1b = st.columns(2)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia", placeholder=" ")
@@ -345,7 +348,7 @@ odslony = col1b.text_input("Odsłony (Portal):", key="odslony", placeholder=" ")
 col1c, col1d = st.columns(2)
 zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie", placeholder=" ")
 zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", key="zajawka", placeholder=" ")
-img_portal = st.file_uploader("Dodaj grafiki (Portal Produkty i Firmy)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
+img_portal = st.file_uploader(f"Dodaj grafiki ({NAZWA_PORTALU})", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 uklad_portal = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u1")
 st.markdown("---")
 
@@ -695,7 +698,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     pdf.set_y(pdf.get_y() + 6)
 
     # ---------- SEKCJE ----------
-    render_section("Portal Produkty i Firmy", desc_portal, [
+    render_section(NAZWA_PORTALU, desc_portal, [
         ("Zdarzenia na portalu", zdarzenia),
         ("Odsłony", odslony),
         ("Zaangażowanie", zaangazowanie),
