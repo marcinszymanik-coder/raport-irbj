@@ -77,7 +77,7 @@ SLOWNICZEK = {
     "wyniki": (
         "Wyniki wyszukiwania w wyszukiwarce Google",
         "Organiczne (niereklamowe) wyniki, które Google pokazuje w odpowiedzi na wpisaną frazę. "
-        "Odsłony to liczba wyświetleń linku do materiału w wynikach wyszukiwania, "
+        " Odsłony to liczba wyświetlonych linków do materiału w wynikach wyszukiwania, "
         "a kliknięcia to liczba przejść z wyników na stronę z materiałem.",
     ),
     "ai": (
