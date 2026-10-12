@@ -321,7 +321,7 @@ data_raportu = ca5.date_input("Data wykonania raportu:", value=date.today())
 st.markdown("---")
 st.subheader("Strona tytułowa: podsumowanie")
 KPI_OPTIONS = [
-    "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Wyświetlenia zajawki",
+    "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Widoczność artykułu w serwisie",
     "Odsłony w Google Discover", "Kliknięcia z Google Discover",
     "Odsłony w wyszukiwarce Google", "Kliknięcia z wyszukiwarki Google",
     "Generatywna AI", "Zasięg na Facebooku",
@@ -347,7 +347,7 @@ zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia", pla
 odslony = col1b.text_input("Odsłony (Portal):", key="odslony", placeholder=" ")
 col1c, col1d = st.columns(2)
 zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie", placeholder=" ")
-zajawka = col1d.text_input("Wyświetlenia zajawki o artykule:", key="zajawka", placeholder=" ")
+zajawka = col1d.text_input("Widoczność artykułu w serwisie:", key="zajawka", placeholder=" ")
 img_portal = st.file_uploader(f"Dodaj grafiki ({NAZWA_PORTALU})", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 uklad_portal = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u1")
 st.markdown("---")
@@ -661,7 +661,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     wartosci = {
         "Odsłony portalu": odslony, "Zdarzenia na portalu": zdarzenia,
-        "Zaangażowanie": zaangazowanie, "Wyświetlenia zajawki": zajawka,
+        "Zaangażowanie": zaangazowanie, "Widoczność artykułu w serwisie": zajawka,
         "Odsłony w Google Discover": g_disc_odslony, "Kliknięcia z Google Discover": g_disc_klik,
         "Odsłony w wyszukiwarce Google": g_wyniki_odslony,
         "Kliknięcia z wyszukiwarki Google": g_wyniki_klik,
@@ -702,7 +702,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         ("Zdarzenia na portalu", zdarzenia),
         ("Odsłony", odslony),
         ("Zaangażowanie", zaangazowanie),
-        ("Wyświetlenia zajawki artykułu", zajawka),
+        ("Widoczność artykułu w serwisie", zajawka),
     ], img_portal, uklad_portal == UKLAD[1])
 
     render_section("Google Discover", desc_disc, [
