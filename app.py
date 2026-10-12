@@ -2,6 +2,7 @@ import streamlit as st
 from streamlit_oauth import OAuth2Component
 import requests
 from fpdf import FPDF
+import csv
 import io
 import os
 import re
@@ -62,6 +63,64 @@ MOTYWY = {
         },
     },
 }
+
+UKLAD = ["1 w rzędzie", "2 kolumny"]
+KPI_OPTIONS = [
+    "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Widoczność artykułu w serwisie",
+    "Odsłony w Google Discover", "Kliknięcia z Google Discover",
+    "Odsłony w wyszukiwarce Google", "Kliknięcia z wyszukiwarki Google",
+    "Generatywna AI", "Zasięg na Facebooku", "Wyświetlenia na LinkedIn",
+]
+DOMYSLNE_KPI = ["Odsłony portalu", "Odsłony w wyszukiwarce Google", "Odsłony w Google Discover", "Zaangażowanie"]
+DOMYSLNY_UKLAD = {"u1": UKLAD[0], "u2": UKLAD[0], "u3": UKLAD[0], "u4": UKLAD[1], "u5": UKLAD[0]}
+DOMYSLNE_OPISY = {
+    "desc_portal": "Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.",
+    "desc_disc": "Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.",
+    "desc_wyniki": "Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.",
+    "desc_fb": "Zestawienie obejmuje zasięg wygenerowany w serwisie Facebook, wspierający główną komunikację.",
+    "desc_li": "Zestawienie obejmuje zasięg publikacji w serwisie LinkedIn, wspierający główną komunikację.",
+}
+
+# Pola tekstowe zapisywane do / wczytywane z CSV: (klucz w session_state, opis dla człowieka)
+POLA_CSV = [
+    ("firma", "Raport dla firmy"),
+    ("okres", "Okres kampanii"),
+    ("zdarzenia", "Portal: liczba zdarzeń"),
+    ("odslony", "Portal: odsłony"),
+    ("zaangazowanie", "Portal: zaangażowanie"),
+    ("zajawka", "Portal: widoczność artykułu w serwisie"),
+    ("g_disc_odslony", "Google Discover: odsłony"),
+    ("g_disc_klik", "Google Discover: kliknięcia"),
+    ("g_wyniki_odslony", "Wyszukiwarka Google: odsłony"),
+    ("g_wyniki_klik", "Wyszukiwarka Google: kliknięcia"),
+    ("g_ai", "Wyszukiwarka Google: generatywna AI"),
+    ("fb_zasieg", "Facebook: zasięg"),
+    ("li_zasieg", "LinkedIn: wyświetlenia"),
+    ("podsumowanie", "Podsumowanie / komentarz na okładce"),
+    ("desc_portal", "Opis sekcji: Portal"),
+    ("desc_disc", "Opis sekcji: Google Discover"),
+    ("desc_wyniki", "Opis sekcji: wyszukiwarka Google"),
+    ("desc_fb", "Opis sekcji: Facebook"),
+    ("desc_li", "Opis sekcji: LinkedIn"),
+    ("links_portal", "Linki: Portal"),
+    ("links_disc", "Linki: Google Discover"),
+    ("links_wyniki", "Linki: wyszukiwarka Google"),
+    ("links_fb", "Linki: Facebook"),
+    ("links_li", "Linki: LinkedIn"),
+]
+POLA_LICZBOWE = {"zdarzenia", "odslony", "g_disc_odslony", "g_disc_klik", "g_wyniki_odslony",
+                 "g_wyniki_klik", "g_ai", "fb_zasieg", "li_zasieg"}
+KLUCZE_TEKSTOWE = {k for k, _ in POLA_CSV}
+USTAWIENIA_CSV = [
+    ("kpi_wybrane", "Kafelki na okładce (rozdziel znakiem |)"),
+    ("motyw", "Wersja raportu: " + " / ".join(MOTYWY.keys())),
+    ("logo_wariant", "Logo (tylko budujemydom.pl): Czerwone / Szare"),
+    ("u1", "Układ grafik: Portal (" + " / ".join(UKLAD) + ")"),
+    ("u2", "Układ grafik: Google Discover"),
+    ("u3", "Układ grafik: wyszukiwarka Google"),
+    ("u4", "Układ grafik: Facebook"),
+    ("u5", "Układ grafik: LinkedIn"),
+]
 
 
 def znajdz_plik(baza):
@@ -137,6 +196,89 @@ def info_o_linkach(raw):
     n = sum(1 for e in elementy if e[0] == "link")
     if n:
         st.caption(f"Rozpoznano linków: {n}" + (f" (pominięto duplikaty: {dup})" if dup else ""))
+
+
+# ------------------------------------------------------------
+# CSV: eksport i import danych raportu
+# ------------------------------------------------------------
+def formatuj_liczbe(v):
+    """Excel potrafi zjeść spacje tysięcy: 23514 -> 23 514."""
+    v = v.strip()
+    if re.fullmatch(r"\d{4,}", v):
+        return f"{int(v):,}".replace(",", " ")
+    return v
+
+
+def csv_eksport():
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+    w.writerow(["klucz", "opis", "wartosc"])
+    for klucz, opis in POLA_CSV:
+        w.writerow([klucz, opis, str(st.session_state.get(klucz, "") or "")])
+    for klucz, opis in USTAWIENIA_CSV:
+        if klucz == "kpi_wybrane":
+            wartosc = " | ".join(st.session_state.get("kpi_wybrane", []) or [])
+        else:
+            wartosc = str(st.session_state.get(klucz, "") or "")
+        w.writerow([klucz, opis, wartosc])
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def csv_import(plik):
+    """Wpisuje dane z CSV do session_state. Zwraca (liczba zastosowanych pól, lista pominiętych)."""
+    tekst = plik.getvalue().decode("utf-8-sig", errors="replace")
+    pierwsza = tekst.splitlines()[0] if tekst.strip() else ""
+    sep = ";" if pierwsza.count(";") >= pierwsza.count(",") else ","
+    reader = csv.DictReader(io.StringIO(tekst, newline=""), delimiter=sep)
+    if reader.fieldnames:
+        reader.fieldnames = [(f or "").strip().lower() for f in reader.fieldnames]
+
+    wartosci = {}
+    for row in reader:
+        klucz = (row.get("klucz") or "").strip()
+        if klucz:
+            wartosci[klucz] = (row.get("wartosc") or "").replace("\r\n", "\n").replace("\r", "\n")
+
+    zastosowano, pominiete = 0, []
+    for klucz, val in wartosci.items():
+        if klucz in KLUCZE_TEKSTOWE:
+            st.session_state[klucz] = formatuj_liczbe(val) if klucz in POLA_LICZBOWE else val.strip()
+            zastosowano += 1
+        elif klucz == "kpi_wybrane":
+            lista = [x.strip() for x in val.split("|") if x.strip()]
+            poprawne = [x for x in lista if x in KPI_OPTIONS]
+            for x in lista:
+                if x not in KPI_OPTIONS:
+                    pominiete.append(f"kafelek „{x}”")
+            st.session_state["kpi_wybrane"] = poprawne
+            zastosowano += 1
+        elif klucz == "motyw":
+            if val.strip() in MOTYWY:
+                st.session_state["motyw"] = val.strip()
+                zastosowano += 1
+            elif val.strip():
+                pominiete.append(f"wersja raportu „{val.strip()}”")
+        elif klucz == "logo_wariant":
+            pass   # obsługiwane niżej, po ustaleniu motywu
+        elif klucz in DOMYSLNY_UKLAD:
+            if val.strip() in UKLAD:
+                st.session_state[klucz] = val.strip()
+                zastosowano += 1
+            elif val.strip():
+                pominiete.append(f"układ „{val.strip()}” ({klucz})")
+        else:
+            pominiete.append(f"nieznany klucz „{klucz}”")
+
+    if "logo_wariant" in wartosci and wartosci["logo_wariant"].strip():
+        motyw_koncowy = st.session_state.get("motyw", list(MOTYWY.keys())[0])
+        dostepne = MOTYWY[motyw_koncowy]["loga"]
+        if len(dostepne) > 1:
+            if wartosci["logo_wariant"].strip() in dostepne:
+                st.session_state["logo_wariant"] = wartosci["logo_wariant"].strip()
+                zastosowano += 1
+            else:
+                pominiete.append(f"logo „{wartosci['logo_wariant'].strip()}”")
+    return zastosowano, pominiete
 
 
 # Stałe niezależne od motywu
@@ -222,6 +364,18 @@ keys_to_init = [
 for k in keys_to_init:
     if k not in st.session_state:
         st.session_state[k] = ""
+
+# Wartości domyślne widgetów, które da się ustawić z CSV (bez parametrów value= / index= / default=)
+for k, v in DOMYSLNE_OPISY.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+for k, v in DOMYSLNY_UKLAD.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+if "kpi_wybrane" not in st.session_state:
+    st.session_state["kpi_wybrane"] = list(DOMYSLNE_KPI)
+if "motyw" not in st.session_state:
+    st.session_state["motyw"] = list(MOTYWY.keys())[0]
 
 
 def pobierz_profil(email_adres):
@@ -331,6 +485,28 @@ if st.session_state.get("_brak_pdf"):
     st.warning("Nie udało się odczytać: " + ", ".join(st.session_state["_brak_pdf"]) +
                ". Zaznacz „Pokaż surowy tekst” i sprawdź, jak PDF zwraca te pola, albo wpisz je ręcznie.")
 
+# ============================================================
+# EKSPORT / IMPORT DANYCH RAPORTU (CSV)
+# ============================================================
+with st.expander("📄 Eksport i import danych raportu (CSV)"):
+    st.caption("Pobierz dane raportu do pliku CSV, popraw je w Excelu lub Arkuszach Google (zmieniaj tylko kolumnę "
+               "„wartosc”), a potem wczytaj z powrotem. CSV nie zawiera grafik, logo klienta ani danych autora "
+               "(te pochodzą z profilu po zalogowaniu).")
+    nazwa_csv = re.sub(r"[^\w\-]+", "_", str(st.session_state.get("firma", "")).strip()) or "raport"
+    st.download_button(
+        "⬇️ Pobierz dane raportu (CSV)",
+        data=csv_eksport(),
+        file_name=f"dane_raportu_{nazwa_csv}.csv",
+        mime="text/csv",
+    )
+    plik_csv = st.file_uploader("Wczytaj poprawiony plik CSV", type=["csv"], key="csv_import")
+    if plik_csv is not None:
+        if st.button("Zastosuj dane z pliku CSV"):
+            zastosowano, pominiete = csv_import(plik_csv)
+            st.success(f"Wczytano pól: {zastosowano}. Formularz poniżej został zaktualizowany.")
+            if pominiete:
+                st.warning("Pominięto: " + "; ".join(pominiete))
+
 st.markdown("---")
 
 # ============================================================
@@ -388,16 +564,10 @@ data_raportu = ca5.date_input("Data wykonania raportu:", value=date.today())
 
 st.markdown("---")
 st.subheader("Strona tytułowa: podsumowanie")
-KPI_OPTIONS = [
-    "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Widoczność artykułu w serwisie",
-    "Odsłony w Google Discover", "Kliknięcia z Google Discover",
-    "Odsłony w wyszukiwarce Google", "Kliknięcia z wyszukiwarki Google",
-    "Generatywna AI", "Zasięg na Facebooku", "Wyświetlenia na LinkedIn",
-]
 kpi_wybrane = st.multiselect(
     "Kafelki z najważniejszymi wynikami na pierwszej stronie (zalecane 3–4; puste wartości są pomijane):",
     KPI_OPTIONS,
-    default=["Odsłony portalu", "Odsłony w wyszukiwarce Google", "Odsłony w Google Discover", "Zaangażowanie"],
+    key="kpi_wybrane",
 )
 # Komentarz jest opcjonalny, brak atrybutu placeholder=" " uchroni go przed czerwoną ramką
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
@@ -408,14 +578,13 @@ if "http" in podsumowanie.lower():
 st.markdown("---")
 st.subheader("Dane, opisy, linki i grafiki dla poszczególnych sekcji")
 st.caption("Sekcje bez danych, linków i grafik nie pojawią się w raporcie.")
-UKLAD = ["1 w rzędzie", "2 kolumny"]
 POMOC_LINKI = ("Jeden wiersz = jeden element. Format „Nazwa | https://adres” nadaje własną nazwę kafelkowi. "
                "Bez nazwy: adresy z Facebooka i LinkedIna dostają „Post 1”, „Post 2”…, a pozostałe nazwę z końcówki adresu. "
                "Wiersz bez adresu staje się podtytułem. Duplikaty są pomijane.")
 
 # --- SEKCJA 1 ---
 st.markdown(f"#### 1. {NAZWA_PORTALU}")
-desc_portal = st.text_area("Opis sekcji (Portal):", value="Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.", height=70, placeholder=" ")
+desc_portal = st.text_area("Opis sekcji (Portal):", key="desc_portal", height=70, placeholder=" ")
 col1a, col1b = st.columns(2)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia", placeholder=" ")
 odslony = col1b.text_input("Odsłony (Portal):", key="odslony", placeholder=" ")
@@ -430,7 +599,7 @@ st.markdown("---")
 
 # --- SEKCJA 2 ---
 st.markdown("#### 2. Google Discover")
-desc_disc = st.text_area("Opis sekcji (Discover):", value="Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.", height=70, placeholder=" ")
+desc_disc = st.text_area("Opis sekcji (Discover):", key="desc_disc", height=70, placeholder=" ")
 col2a, col2b = st.columns(2)
 g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony", placeholder=" ")
 g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik", placeholder=" ")
@@ -442,7 +611,7 @@ st.markdown("---")
 
 # --- SEKCJA 3 ---
 st.markdown("#### 3. Wyniki wyszukiwania w wyszukiwarce Google")
-desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", value="Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.", height=70, placeholder=" ")
+desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", key="desc_wyniki", height=70, placeholder=" ")
 col3a, col3b, col3c = st.columns(3)
 g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony", placeholder=" ")
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik", placeholder=" ")
@@ -455,22 +624,22 @@ st.markdown("---")
 
 # --- SEKCJA 4: FACEBOOK ---
 st.markdown("#### 4. Facebook")
-desc_fb = st.text_area("Opis sekcji (Facebook):", value="Zestawienie obejmuje zasięg wygenerowany w serwisie Facebook, wspierający główną komunikację.", height=70, placeholder=" ")
+desc_fb = st.text_area("Opis sekcji (Facebook):", key="desc_fb", height=70, placeholder=" ")
 fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg", placeholder=" ")
 links_fb = st.text_area("Linki do postów (opcjonalnie):", key="links_fb", height=120, help=POMOC_LINKI)
 info_o_linkach(links_fb)
 img_fb = st.file_uploader("Dodaj grafiki (Facebook)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
-uklad_fb = st.radio("Układ grafik:", UKLAD, horizontal=True, index=1, key="u4")
+uklad_fb = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u4")
 st.markdown("---")
 
 # --- SEKCJA 5: LINKEDIN ---
 st.markdown("#### 5. LinkedIn")
-desc_li = st.text_area("Opis sekcji (LinkedIn):", value="Zestawienie obejmuje zasięg publikacji w serwisie LinkedIn, wspierający główną komunikację.", height=70, placeholder=" ")
+desc_li = st.text_area("Opis sekcji (LinkedIn):", key="desc_li", height=70, placeholder=" ")
 li_zasieg = st.text_input("Wyświetlenia na LinkedIn:", key="li_zasieg", placeholder=" ")
 links_li = st.text_area("Linki do postów (opcjonalnie):", key="links_li", height=80, help=POMOC_LINKI)
 info_o_linkach(links_li)
 img_li = st.file_uploader("Dodaj grafiki (LinkedIn)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p5")
-uklad_li = st.radio("Układ grafik:", UKLAD, horizontal=True, index=0, key="u5")
+uklad_li = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u5")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
