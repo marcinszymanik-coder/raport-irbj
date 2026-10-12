@@ -64,6 +64,31 @@ OSOBY = {
 }
 
 # ------------------------------------------------------------
+# SŁOWNICZEK POJĘĆ (pokazywany na końcu raportu tylko dla wypełnionych pól)
+# Możesz dowolnie edytować treść definicji.
+# ------------------------------------------------------------
+SLOWNICZEK = {
+    "discover": (
+        "Google Discover",
+        "Spersonalizowany strumień treści w aplikacji Google i na stronie głównej Google w telefonie. "
+        "Pokazuje użytkownikowi artykuły dopasowane do jego zainteresowań, zanim cokolwiek wpisze w wyszukiwarkę. "
+        "Odsłony to liczba wyświetleń materiału w tym strumieniu, a kliknięcia to liczba przejść na stronę z materiałem.",
+    ),
+    "wyniki": (
+        "Wyniki wyszukiwania w wyszukiwarce Google",
+        "Organiczne (niereklamowe) wyniki, które Google pokazuje w odpowiedzi na wpisaną frazę. "
+        "Odsłony to liczba wyświetleń linku do materiału w wynikach wyszukiwania, "
+        "a kliknięcia to liczba przejść z wyników na stronę z materiałem.",
+    ),
+    "ai": (
+        "Generatywna AI",
+        "Odpowiedzi tworzone przez sztuczną inteligencję bezpośrednio w wyszukiwarce Google "
+        "(np. podsumowania AI nad wynikami wyszukiwania), w których treść jest wykorzystywana jako źródło "
+        "i podlinkowana. Wartość oznacza liczbę wyświetleń materiału w takich odpowiedziach.",
+    ),
+}
+
+# ------------------------------------------------------------
 # MOTYWY: kolorystyka raportu (RGB) + dostępne logo
 #   main   - górny pasek, nagłówki sekcji, ciemne kafelki, tytuły, wartości
 #   accent - paski akcentowe na kafelkach i nagłówkach
@@ -728,6 +753,29 @@ links_li = st.text_area("Linki do postów (opcjonalnie):", key="links_li", heigh
 info_o_linkach(links_li)
 img_li = st.file_uploader("Dodaj grafiki (LinkedIn)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p5")
 uklad_li = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u5")
+st.markdown("---")
+
+# --- SŁOWNICZEK ---
+st.markdown("#### Słowniczek pojęć")
+slowniczek_wlaczony = st.checkbox(
+    "Dodaj słowniczek pojęć na końcu raportu",
+    value=True,
+    key="slowniczek",
+    help="Słowniczek zawiera tylko te pojęcia, których dotyczą wypełnione pola: Google Discover, "
+         "wyniki wyszukiwania w Google, generatywna AI. Treść definicji edytujesz w słowniku SLOWNICZEK na górze pliku.",
+)
+_widoczne_pojecia = []
+if str(g_disc_odslony).strip() or str(g_disc_klik).strip():
+    _widoczne_pojecia.append(SLOWNICZEK["discover"][0])
+if str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip():
+    _widoczne_pojecia.append(SLOWNICZEK["wyniki"][0])
+if str(g_ai).strip():
+    _widoczne_pojecia.append(SLOWNICZEK["ai"][0])
+if slowniczek_wlaczony:
+    if _widoczne_pojecia:
+        st.caption("W raporcie pojawią się definicje: " + "; ".join(_widoczne_pojecia) + ".")
+    else:
+        st.caption("Żadne z powiązanych pól nie jest wypełnione, więc słowniczek nie pojawi się w raporcie.")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1115,6 +1163,40 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
         pdf.set_y(pdf.get_y() + 8)
 
+    def render_slowniczek(wpisy):
+        """Słowniczek pojęć: nagłówek w stylu sekcji + lista (termin pogrubiony, pod nim definicja)."""
+        if not wpisy:
+            return
+        # nagłówek razem z pierwszym wpisem nie zostaje sam na dole strony
+        pierwsze_linie = len(wrap_rich(wpisy[0][1], W - 2, 9.5))
+        ensure_space(13 + 7 + min(pierwsze_linie, 3) * 4.8)
+
+        y = pdf.get_y()
+        pdf.set_fill_color(*MAIN)
+        pdf.rect(ML, y, W, 9, 'F')
+        pdf.set_fill_color(*ACCENT)
+        pdf.rect(ML, y, 3, 9, 'F')
+        pdf.set_xy(ML + 7, y)
+        pdf.set_font(FONT, 'B', 12)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(W - 10, 9, "Słowniczek pojęć")
+        pdf.set_y(y + 13)
+
+        for termin, definicja in wpisy:
+            linie = wrap_rich(definicja, W - 2, 9.5)
+            ensure_space(7 + min(len(linie), 3) * 4.8)
+            y0 = pdf.get_y()
+            pdf.set_fill_color(*ACCENT)
+            pdf.rect(ML + 1, y0 + 2.2, 1.8, 1.8, 'F')
+            pdf.set_xy(ML + 6, y0)
+            pdf.set_font(FONT, 'B', 10)
+            pdf.set_text_color(*MAIN)
+            pdf.cell(W - 7, 6, termin)
+            pdf.set_y(y0 + 6.5)
+            draw_rich_lines(linie, ML + 1, 4.8, 9.5, GREY)
+            pdf.set_y(pdf.get_y() + 4)
+        pdf.set_y(pdf.get_y() + 2)
+
     # ---------- STRONA TYTUŁOWA ----------
     pdf.add_page()
 
@@ -1246,6 +1328,17 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     render_section("LinkedIn", desc_li, [
         ("Wyświetlenia na LinkedIn", li_zasieg),
     ], img_li, uklad_li == UKLAD[1], links_li)
+
+    # ---------- SŁOWNICZEK POJĘĆ (tylko dla wypełnionych pól) ----------
+    if slowniczek_wlaczony:
+        wpisy_slowniczka = []
+        if str(g_disc_odslony).strip() or str(g_disc_klik).strip():
+            wpisy_slowniczka.append(SLOWNICZEK["discover"])
+        if str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip():
+            wpisy_slowniczka.append(SLOWNICZEK["wyniki"])
+        if str(g_ai).strip():
+            wpisy_slowniczka.append(SLOWNICZEK["ai"])
+        render_slowniczek(wpisy_slowniczka)
 
     # ---------- KARTA KONTAKTOWA ----------
     if autor.strip() or email.strip() or telefon.strip():
