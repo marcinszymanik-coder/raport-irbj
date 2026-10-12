@@ -37,6 +37,33 @@ logo_svg = "logo-irbj-new.svg"
 logo_png = "logo.png"
 
 # ------------------------------------------------------------
+# OSOBY KONTAKTOWE (lista rozwijana "Dla kogo przygotowujesz raport")
+# ------------------------------------------------------------
+BRAK_OSOBY = "— wybierz osobę —"
+OSOBY = {
+    "Ewa Zuchora": {
+        "email": "ewa.zuchora@budujemydom.pl", "telefon": "668 04 54 77",
+        "stanowisko": "Specjalista ds. reklamy",
+    },
+    "Katarzyna Rosa": {
+        "email": "katarzyna.rosa@budujemydom.pl", "telefon": "503 672 266",
+        "stanowisko": "Specjalista ds. reklamy",
+    },
+    "Paulina Muniak": {
+        "email": "paulina.muniak@budujemydom.pl", "telefon": "513 637 603",
+        "stanowisko": "Specjalista ds. reklamy",
+    },
+    "Agnieszka Iwacyk": {
+        "email": "agnieszka.iwacyk@budujemydom.pl", "telefon": "502 719 299",
+        "stanowisko": "Specjalista ds. reklamy",
+    },
+    "Dorota Chrząszcz": {
+        "email": "dorota.chrzaszcz@budujemydom.pl", "telefon": "606 887 927",
+        "stanowisko": "Specjalista ds. reklamy",
+    },
+}
+
+# ------------------------------------------------------------
 # MOTYWY: kolorystyka raportu (RGB) + dostępne logo
 #   main   - górny pasek, nagłówki sekcji, ciemne kafelki, tytuły, wartości
 #   accent - paski akcentowe na kafelkach i nagłówkach
@@ -114,6 +141,7 @@ POLA_LICZBOWE = {"zdarzenia", "odslony", "g_disc_odslony", "g_disc_klik", "g_wyn
                  "g_wyniki_klik", "g_ai", "fb_zasieg", "li_zasieg"}
 KLUCZE_TEKSTOWE = {k for k, _ in POLA_CSV}
 USTAWIENIA_CSV = [
+    ("osoba", "Osoba kontaktowa: " + " / ".join(OSOBY.keys())),
     ("kpi_wybrane", "Kafelki na okładce (rozdziel znakiem |)"),
     ("motyw", "Wersja raportu: " + " / ".join(MOTYWY.keys())),
     ("logo_wariant", "Logo (tylko budujemydom.pl): Czerwone / Szare"),
@@ -143,6 +171,8 @@ def znajdz_plik(baza):
 # Rodzaje: "post" (kafelek), "wlasna", "auto" (obie ostatnie = wiersze listy)
 # ------------------------------------------------------------
 URL_RE = re.compile(r"https?://[^\s<>\"]+")
+# Linki w opisach i podsumowaniu (bez zmiany tekstu): http(s):// albo www.
+LINK_TEKST_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"]+", re.IGNORECASE)
 SPOLECZNOSC = {"facebook.com": "fb", "fb.com": "fb", "linkedin.com": "li"}
 DOZWOLONE_HOSTY_TYTULY = ("budujemydom.pl", "budownictwob2b.pl", "instalacjeb2b.pl")
 
@@ -277,6 +307,9 @@ def csv_eksport():
     for klucz, opis in USTAWIENIA_CSV:
         if klucz == "kpi_wybrane":
             wartosc = " | ".join(st.session_state.get("kpi_wybrane", []) or [])
+        elif klucz == "osoba":
+            wartosc = st.session_state.get("osoba", "")
+            wartosc = "" if wartosc == BRAK_OSOBY else wartosc
         else:
             wartosc = str(st.session_state.get(klucz, "") or "")
         w.writerow([klucz, opis, wartosc])
@@ -311,6 +344,12 @@ def csv_import(plik):
                     pominiete.append(f"kafelek „{x}”")
             st.session_state["kpi_wybrane"] = poprawne
             zastosowano += 1
+        elif klucz == "osoba":
+            if val.strip() in OSOBY:
+                st.session_state["osoba"] = val.strip()
+                zastosowano += 1
+            elif val.strip():
+                pominiete.append(f"osoba „{val.strip()}”")
         elif klucz == "motyw":
             if val.strip() in MOTYWY:
                 st.session_state["motyw"] = val.strip()
@@ -382,13 +421,13 @@ if "user_email" not in st.session_state:
         token = result["token"]["access_token"]
         user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
 
-        email = user_info.get("email", "").lower()
-        if email.endswith("@" + DOZWOLONA_DOMENA) and user_info.get("email_verified"):
-            st.session_state.user_email = email
+        login_email = user_info.get("email", "").lower()
+        if login_email.endswith("@" + DOZWOLONA_DOMENA) and user_info.get("email_verified"):
+            st.session_state.user_email = login_email
             st.session_state.user_name = user_info.get("name", "")
             st.rerun()
         else:
-            st.error(f"Dostęp tylko dla zweryfikowanych kont @{DOZWOLONA_DOMENA}. Próba logowania z adresu: {email}")
+            st.error(f"Dostęp tylko dla zweryfikowanych kont @{DOZWOLONA_DOMENA}. Próba logowania z adresu: {login_email}")
     st.stop()
 
 email_user = st.session_state.user_email
@@ -435,28 +474,8 @@ if "kpi_wybrane" not in st.session_state:
     st.session_state["kpi_wybrane"] = list(DOMYSLNE_KPI)
 if "motyw" not in st.session_state:
     st.session_state["motyw"] = list(MOTYWY.keys())[0]
-
-
-def pobierz_profil(email_adres):
-    wpis = {}
-    try:
-        surowy = st.secrets["uzytkownicy"].get(email_adres)
-        if surowy:
-            wpis = dict(surowy)
-    except Exception:
-        pass
-    return {
-        "autor": wpis.get("imie_nazwisko") or st.session_state.get("user_name") or "",
-        "stanowisko": wpis.get("stanowisko", ""),
-        "email": email_adres,
-        "telefon": wpis.get("telefon", ""),
-    }
-
-
-if st.session_state.get("_profil_dla") != email_user:
-    for k, v in pobierz_profil(email_user).items():
-        st.session_state[k] = v
-    st.session_state["_profil_dla"] = email_user
+if "osoba" not in st.session_state:
+    st.session_state["osoba"] = BRAK_OSOBY
 
 # ============================================================
 # PARSOWANIE PDF Z GOOGLE ANALYTICS
@@ -549,8 +568,7 @@ if st.session_state.get("_brak_pdf"):
 # ============================================================
 with st.expander("📄 Eksport i import danych raportu (CSV)"):
     st.caption("Pobierz dane raportu do pliku CSV, popraw je w Excelu lub Arkuszach Google (zmieniaj tylko kolumnę "
-               "„wartosc”), a potem wczytaj z powrotem. CSV nie zawiera grafik, logo klienta ani danych autora "
-               "(te pochodzą z profilu po zalogowaniu).")
+               "„wartosc”), a potem wczytaj z powrotem. CSV nie zawiera grafik ani logo klienta.")
     nazwa_csv = re.sub(r"[^\w\-]+", "_", str(st.session_state.get("firma", "")).strip()) or "raport"
     st.download_button(
         "⬇️ Pobierz dane raportu (CSV)",
@@ -613,13 +631,24 @@ with col_firma2:
 with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
-st.markdown("#### Autor raportu")
-ca1, ca2, ca3, ca4, ca5 = st.columns([2, 2, 2, 1.5, 1.5])
-autor = ca1.text_input("Imię i nazwisko:", key="autor", placeholder=" ")
-stanowisko = ca2.text_input("Stanowisko:", key="stanowisko", placeholder=" ")
-email = ca3.text_input("E-mail:", key="email", placeholder=" ")
-telefon = ca4.text_input("Telefon:", key="telefon", placeholder=" ")
-data_raportu = ca5.date_input("Data wykonania raportu:", value=date.today())
+st.markdown("#### Osoba kontaktowa w raporcie")
+co1, co2 = st.columns([3, 1.5])
+wybrana_osoba = co1.selectbox(
+    "Dla kogo przygotowujesz raport (jej dane trafią na okładkę i do stopki „Masz pytania?”):",
+    [BRAK_OSOBY] + list(OSOBY.keys()),
+    key="osoba",
+)
+data_raportu = co2.date_input("Data wykonania raportu:", value=date.today())
+
+if wybrana_osoba in OSOBY:
+    _dane_osoby = OSOBY[wybrana_osoba]
+    autor = wybrana_osoba
+    stanowisko = _dane_osoby["stanowisko"]
+    email = _dane_osoby["email"]
+    telefon = _dane_osoby["telefon"]
+    co1.caption(f"{stanowisko} · {email} · {telefon}")
+else:
+    autor = stanowisko = email = telefon = ""
 
 st.markdown("---")
 st.subheader("Strona tytułowa: podsumowanie")
@@ -628,15 +657,14 @@ kpi_wybrane = st.multiselect(
     KPI_OPTIONS,
     key="kpi_wybrane",
 )
+POMOC_TEKST = ("Adresy zaczynające się od https://, http:// lub www. są klikalne i zostają w takiej postaci, "
+               "w jakiej je wpiszesz.")
 # Komentarz jest opcjonalny, brak atrybutu placeholder=" " uchroni go przed czerwoną ramką
-podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
-if "http" in podsumowanie.lower():
-    st.warning("W podsumowaniu są adresy URL. Wstaw je lepiej w polach „Linki” w odpowiednich sekcjach poniżej: "
-               "tam są zamieniane na czytelną, klikalną listę.")
+podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90, help=POMOC_TEKST)
 
 st.markdown("---")
 st.subheader("Dane, opisy, linki i grafiki dla poszczególnych sekcji")
-st.caption("Sekcje bez danych, linków i grafik nie pojawią się w raporcie.")
+st.caption("Sekcje bez danych, linków i grafik nie pojawią się w raporcie. Adresy URL wpisane w opisach są klikalne.")
 POMOC_LINKI = ("Jeden wiersz = jeden element. Adresy z Facebooka i LinkedIna dostają kafelki „Post 1”, „Post 2”… "
                "Pozostałe adresy trafiają na listę: dla budujemydom.pl, budownictwob2b.pl i instalacjeb2b.pl tytuły "
                "artykułów są pobierane automatycznie przy generowaniu raportu. Własną nazwę nadasz formatem "
@@ -644,7 +672,7 @@ POMOC_LINKI = ("Jeden wiersz = jeden element. Adresy z Facebooka i LinkedIna dos
 
 # --- SEKCJA 1 ---
 st.markdown(f"#### 1. {NAZWA_PORTALU}")
-desc_portal = st.text_area("Opis sekcji (Portal):", key="desc_portal", height=70, placeholder=" ")
+desc_portal = st.text_area("Opis sekcji (Portal):", key="desc_portal", height=70, placeholder=" ", help=POMOC_TEKST)
 col1a, col1b = st.columns(2)
 zdarzenia = col1a.text_input("Liczba zdarzeń na portalu:", key="zdarzenia", placeholder=" ")
 odslony = col1b.text_input("Odsłony (Portal):", key="odslony", placeholder=" ")
@@ -659,7 +687,7 @@ st.markdown("---")
 
 # --- SEKCJA 2 ---
 st.markdown("#### 2. Google Discover")
-desc_disc = st.text_area("Opis sekcji (Discover):", key="desc_disc", height=70, placeholder=" ")
+desc_disc = st.text_area("Opis sekcji (Discover):", key="desc_disc", height=70, placeholder=" ", help=POMOC_TEKST)
 col2a, col2b = st.columns(2)
 g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony", placeholder=" ")
 g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik", placeholder=" ")
@@ -671,7 +699,7 @@ st.markdown("---")
 
 # --- SEKCJA 3 ---
 st.markdown("#### 3. Wyniki wyszukiwania w wyszukiwarce Google")
-desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", key="desc_wyniki", height=70, placeholder=" ")
+desc_wyniki = st.text_area("Opis sekcji (Wyszukiwarka):", key="desc_wyniki", height=70, placeholder=" ", help=POMOC_TEKST)
 col3a, col3b, col3c = st.columns(3)
 g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony", placeholder=" ")
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik", placeholder=" ")
@@ -684,7 +712,7 @@ st.markdown("---")
 
 # --- SEKCJA 4: FACEBOOK ---
 st.markdown("#### 4. Facebook")
-desc_fb = st.text_area("Opis sekcji (Facebook):", key="desc_fb", height=70, placeholder=" ")
+desc_fb = st.text_area("Opis sekcji (Facebook):", key="desc_fb", height=70, placeholder=" ", help=POMOC_TEKST)
 fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg", placeholder=" ")
 links_fb = st.text_area("Linki do postów (opcjonalnie):", key="links_fb", height=120, help=POMOC_LINKI)
 info_o_linkach(links_fb)
@@ -694,7 +722,7 @@ st.markdown("---")
 
 # --- SEKCJA 5: LINKEDIN ---
 st.markdown("#### 5. LinkedIn")
-desc_li = st.text_area("Opis sekcji (LinkedIn):", key="desc_li", height=70, placeholder=" ")
+desc_li = st.text_area("Opis sekcji (LinkedIn):", key="desc_li", height=70, placeholder=" ", help=POMOC_TEKST)
 li_zasieg = st.text_input("Wyświetlenia na LinkedIn:", key="li_zasieg", placeholder=" ")
 links_li = st.text_area("Linki do postów (opcjonalnie):", key="links_li", height=80, help=POMOC_LINKI)
 info_o_linkach(links_li)
@@ -712,7 +740,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         st.error(f"Brak pliku {font_file} w folderze aplikacji. Bez niego polskie znaki nie zadziałają.")
         st.stop()
 
+    if wybrana_osoba not in OSOBY:
+        st.error("Wybierz z listy osobę kontaktową, dla której przygotowujesz raport (sekcja „Osoba kontaktowa w raporcie”).")
+        st.stop()
+
     FONT = 'DejaVu'
+    LINKCOL = (0, 90, 200)   # kolor klikalnych linków w opisach
 
     class ReportPDF(FPDF):
         firma_txt = ""
@@ -772,44 +805,96 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         if pdf.get_y() + h > LIMIT:
             new_page()
 
-    def wrap_text(txt, width, size=9.5, style=''):
-        """Zawija tekst do podanej szerokości; długie ciągi (np. URL) łamie w razie potrzeby."""
-        pdf.set_font(FONT, style, size)
-        maxw = width - 2
+    # ---------- tekst z klikalnymi linkami (adresy zostają bez zmian) ----------
+    def rich_pieces(raw):
+        """Dzieli słowo na kawałki (tekst, url): adres staje się klikalny, reszta zostaje zwykłym tekstem."""
+        m = LINK_TEKST_RE.search(raw)
+        if not m:
+            return [(raw, None)]
+        pre = raw[:m.start()]
+        u = m.group(0)
+        core = u.rstrip(",.;:!?)'\"»")
+        if not core:
+            return [(raw, None)]
+        tail = u[len(core):]
+        target = core if core.lower().startswith("http") else "https://" + core
+        out = []
+        if pre:
+            out.append((pre, None))
+        out.append((core, target))
+        if tail:
+            out.append((tail, None))
+        return out
+
+    def wrap_rich(txt, width, size=9.5):
+        """Zawija tekst; zwraca listę wierszy, każdy to lista (tekst, url). Długie adresy łamie w razie potrzeby."""
+        pdf.set_font(FONT, '', size)
+        maxw = width - 1
+
+        def tw(s):
+            return pdf.get_string_width(s)
+
+        sp_w = tw(" ")
         lines = []
         for para in str(txt).split("\n"):
             if not para.strip():
-                lines.append("")
+                lines.append([])
                 continue
-            line = ""
-            for wd in para.split():
-                while pdf.get_string_width(wd) > maxw:
-                    cut = len(wd)
-                    while cut > 1 and pdf.get_string_width(wd[:cut]) > maxw:
-                        cut -= 1
-                    if line:
-                        lines.append(line)
-                        line = ""
-                    lines.append(wd[:cut])
-                    wd = wd[cut:]
-                t = (line + " " + wd).strip()
-                if pdf.get_string_width(t) <= maxw:
-                    line = t
+            cur, cur_w = [], 0.0
+            for raw in para.split():
+                pieces = rich_pieces(raw)
+                tok_w = sum(tw(t) for t, _u in pieces)
+                gap = sp_w if cur else 0
+                if cur and cur_w + gap + tok_w > maxw:
+                    lines.append(cur)
+                    cur, cur_w, gap = [], 0.0, 0
+                if tok_w <= maxw:
+                    if gap:
+                        cur.append((" ", None))
+                    cur.extend(pieces)
+                    cur_w += gap + tok_w
                 else:
-                    lines.append(line)
-                    line = wd
-            lines.append(line)
+                    for t, u in pieces:
+                        while t:
+                            avail = maxw - cur_w
+                            k = len(t)
+                            while k > 0 and tw(t[:k]) > avail:
+                                k -= 1
+                            if k == 0:
+                                if cur:
+                                    lines.append(cur)
+                                    cur, cur_w = [], 0.0
+                                    continue
+                                k = 1
+                            cur.append((t[:k], u))
+                            cur_w += tw(t[:k])
+                            t = t[k:]
+                            if t:
+                                lines.append(cur)
+                                cur, cur_w = [], 0.0
+            lines.append(cur)
         return lines
 
-    def draw_lines(lines, x, w, lh, size, color, style=''):
-        """Rysuje linie tekstu, przechodząc na nową stronę, gdy brakuje miejsca."""
-        for ln in lines:
+    def draw_rich_line(segs, x, y, lh, size, color):
+        old_margin = pdf.c_margin
+        pdf.c_margin = 0
+        cx = x
+        for text, url in segs:
+            pdf.set_font(FONT, 'U' if url else '', size)
+            pdf.set_text_color(*(LINKCOL if url else color))
+            w = pdf.get_string_width(text)
+            pdf.set_xy(cx, y)
+            pdf.cell(w, lh, text, link=url or "")
+            cx += w
+        pdf.c_margin = old_margin
+
+    def draw_rich_lines(lines, x, lh, size, color):
+        """Rysuje wiersze, przechodząc na nową stronę, gdy brakuje miejsca."""
+        for segs in lines:
             ensure_space(lh)
             y = pdf.get_y()
-            pdf.set_xy(x, y)
-            pdf.set_font(FONT, style, size)
-            pdf.set_text_color(*color)
-            pdf.cell(w, lh, ln)
+            if segs:
+                draw_rich_line(segs, x, y, lh, size, color)
             pdf.set_y(y + lh)
 
     def prep_images(files):
@@ -982,7 +1067,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             with st.spinner(f"Pobieram tytuły artykułów ({title})…"):
                 linki = uzupelnij_tytuly(linki)
 
-        desc_lines = wrap_text(desc.strip(), W - 2, 9.5) if desc.strip() else []
+        desc_lines = wrap_rich(desc.strip(), W - 2, 9.5) if desc.strip() else []
 
         need = 13
         if desc_lines:
@@ -1008,7 +1093,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(y + 13)
 
         if desc_lines:
-            draw_lines(desc_lines, ML + 1, W - 2, 4.8, 9.5, GREY)
+            draw_rich_lines(desc_lines, ML + 1, 4.8, 9.5, GREY)
             pdf.set_y(pdf.get_y() + 4)
 
         if kpis:
@@ -1116,7 +1201,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         draw_cards(kpi_cover, dark=True)
 
     if podsumowanie.strip():
-        lines_p = wrap_text(podsumowanie.strip(), W - 12, 10)
+        lines_p = wrap_rich(podsumowanie.strip(), W - 12, 10)
         bh = len(lines_p) * 5 + 15
         ensure_space(bh)
         y = pdf.get_y()
@@ -1128,11 +1213,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*LABEL)
         pdf.cell(60, 4, "PODSUMOWANIE")
-        pdf.set_font(FONT, '', 10)
-        pdf.set_text_color(70, 70, 70)
-        for i, ln in enumerate(lines_p):
-            pdf.set_xy(ML + 7, y + 9 + i * 5)
-            pdf.cell(W - 12, 5, ln)
+        for i, segs in enumerate(lines_p):
+            if segs:
+                draw_rich_line(segs, ML + 7, y + 9 + i * 5, 5, 10, (70, 70, 70))
         pdf.set_y(y + bh + 4)
 
     pdf.set_y(pdf.get_y() + 6)
