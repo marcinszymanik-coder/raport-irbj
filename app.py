@@ -62,11 +62,11 @@ OSOBY = {
         "stanowisko": "Specjalista ds. reklamy",
     },
         "Iwona Fijewska": {
-        "email": "agnieszka.iwacyk@budujemydom.pl", "telefon": "605 078 601",
+        "email": "iwona.fijewska@budujemydom.pl", "telefon": "605 078 601",
         "stanowisko": "Specjalista ds. reklamy",
     },
     "Izabela Konikowska": {
-        "email": "agnieszka.iwacyk@budujemydom.pl", "telefon": "507 970 743",
+        "email": "izabela.konikowska@budujemydom.pl", "telefon": "507 970 743",
         "stanowisko": "Specjalista ds. reklamy",
     },
 }
