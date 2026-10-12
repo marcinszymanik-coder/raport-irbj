@@ -74,10 +74,11 @@ def znajdz_plik(baza):
 
 # ------------------------------------------------------------
 # LINKI: parser wklejonej listy (jeden wiersz = jeden element)
-#   - wiersz bez adresu URL        -> podtytuł
-#   - "Nazwa | https://..."        -> wiersz z własną nazwą
-#   - samo "https://facebook..."   -> kafelek "Post N"
-#   - inny adres                   -> wiersz ze skróconą nazwą
+#   - wiersz bez adresu URL            -> podtytuł
+#   - "Nazwa | https://..."            -> kafelek z własną nazwą
+#   - samo "https://facebook/linkedin" -> kafelek "Post N"
+#   - inny adres bez nazwy             -> kafelek z nazwą z końcówki adresu
+# Każdy link w PDF wygląda tak samo: klikalny kafelek z krótką nazwą.
 # ------------------------------------------------------------
 URL_RE = re.compile(r"https?://[^\s<>\"]+")
 SPOLECZNOSC = {"facebook.com": "fb", "fb.com": "fb", "linkedin.com": "li"}
@@ -87,17 +88,22 @@ def host_z_url(url):
     return re.sub(r"^https?://(www\.)?", "", url, flags=re.IGNORECASE).split("/")[0].lower()
 
 
-def krotka_nazwa_url(url):
-    host = host_z_url(url)
+def nazwa_z_url(url):
+    """Czytelna nazwa z końcówki adresu: .../121153-jak-chronic-poddasze -> 'Jak chronic poddasze'."""
     path = re.sub(r"^https?://[^/]+", "", url).split("?")[0].split("#")[0]
     segs = [s for s in path.split("/") if s]
-    if len(segs) >= 3:
-        return f"{host}/…/{segs[-2]}/{segs[-1]}"
-    return host + ("/" + "/".join(segs) if segs else "")
+    if not segs:
+        return host_z_url(url)
+    slug = re.sub(r"^\d+-", "", segs[-1])
+    nazwa = re.sub(r"[-_]+", " ", slug).strip()
+    if not nazwa:
+        return host_z_url(url)
+    nazwa = nazwa[0].upper() + nazwa[1:]
+    return nazwa if len(nazwa) <= 32 else nazwa[:31].rstrip() + "…"
 
 
 def przygotuj_linki(raw):
-    """Zwraca (lista krotek (typ, etykieta, url, kafelek), liczba pominiętych duplikatów)."""
+    """Zwraca (lista krotek (typ, etykieta, url), liczba pominiętych duplikatów)."""
     wynik, widziane, duplikaty = [], set(), 0
     liczniki = {"fb": 0, "li": 0}
     for linia in str(raw or "").splitlines():
@@ -106,7 +112,7 @@ def przygotuj_linki(raw):
             continue
         m = URL_RE.search(s)
         if not m:
-            wynik.append(("head", s.strip(" :,;"), "", False))
+            wynik.append(("head", s.strip(" :,;"), ""))
             continue
         url = m.group(0).rstrip(",.;)")
         if url in widziane:
@@ -114,17 +120,15 @@ def przygotuj_linki(raw):
             continue
         widziane.add(url)
         etykieta = s[:m.start()].strip(" |-–:,;")
-        kafelek = False
         if not etykieta:
             host = host_z_url(url)
             typ = next((v for k, v in SPOLECZNOSC.items() if host.endswith(k)), None)
             if typ:
                 liczniki[typ] += 1
                 etykieta = f"Post {liczniki[typ]}"
-                kafelek = True
             else:
-                etykieta = krotka_nazwa_url(url)
-        wynik.append(("link", etykieta, url, kafelek))
+                etykieta = nazwa_z_url(url)
+        wynik.append(("link", etykieta, url))
     return wynik, duplikaty
 
 
@@ -399,15 +403,15 @@ kpi_wybrane = st.multiselect(
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
 if "http" in podsumowanie.lower():
     st.warning("W podsumowaniu są adresy URL. Wstaw je lepiej w polach „Linki” w odpowiednich sekcjach poniżej: "
-               "tam są skracane, klikalne i nie rwą się w połowie słowa.")
+               "tam są zamieniane na czytelne, klikalne kafelki.")
 
 st.markdown("---")
 st.subheader("Dane, opisy, linki i grafiki dla poszczególnych sekcji")
 st.caption("Sekcje bez danych, linków i grafik nie pojawią się w raporcie.")
 UKLAD = ["1 w rzędzie", "2 kolumny"]
-POMOC_LINKI = ("Jeden wiersz = jeden element. Wiersz bez adresu staje się podtytułem. "
-               "Format „Nazwa | https://adres” nadaje własną nazwę. "
-               "Adresy z Facebooka i LinkedIna bez nazwy stają się kafelkami „Post 1”, „Post 2”… Duplikaty są pomijane.")
+POMOC_LINKI = ("Jeden wiersz = jeden element. Format „Nazwa | https://adres” nadaje własną nazwę kafelkowi. "
+               "Bez nazwy: adresy z Facebooka i LinkedIna dostają „Post 1”, „Post 2”…, a pozostałe nazwę z końcówki adresu. "
+               "Wiersz bez adresu staje się podtytułem. Duplikaty są pomijane.")
 
 # --- SEKCJA 1 ---
 st.markdown(f"#### 1. {NAZWA_PORTALU}")
@@ -568,9 +572,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             lines.append(line)
         return lines
 
-    def count_lines(txt, width, size=9.5):
-        return len(wrap_text(txt, width, size))
-
     def draw_lines(lines, x, w, lh, size, color, style=''):
         """Rysuje linie tekstu, przechodząc na nową stronę, gdy brakuje miejsca."""
         for ln in lines:
@@ -630,46 +631,37 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.set_y(y + ch + 4)
 
     def draw_link_chips(run):
-        """Kafelki 'Post N' (klikalne), po 6 w rzędzie."""
-        per_row, gap, ch = 6, 3, 6.5
-        cw = (W - gap * (per_row - 1)) / per_row
-        for start in range(0, len(run), per_row):
-            ensure_space(ch + 3)
-            y = pdf.get_y()
-            for j, (_t, lab, url, _k) in enumerate(run[start:start + per_row]):
-                x = ML + j * (cw + gap)
-                pdf.set_fill_color(*LIGHT)
-                pdf.rect(x, y, cw, ch, 'F')
-                pdf.set_fill_color(*ACCENT)
-                pdf.rect(x, y + ch - 0.6, cw, 0.6, 'F')
-                pdf.set_xy(x, y)
-                pdf.set_font(FONT, '', 8.5)
-                pdf.set_text_color(*MAIN)
-                pdf.cell(cw, ch, lab, align='C', link=url)
-            pdf.set_y(y + ch + 2.5)
-
-    def draw_link_row(lab, url):
-        """Wiersz z klikalną (skróconą w razie potrzeby) nazwą."""
-        pdf.set_font(FONT, '', 9.5)
-        maxw = W - 9
-        if pdf.get_string_width(lab) > maxw:
-            while len(lab) > 4 and pdf.get_string_width(lab + "…") > maxw:
-                lab = lab[:-1]
-            lab += "…"
-        ensure_space(7)
+        """Jednolite, klikalne kafelki z nazwą; układane po kolei, zawijane do nowego rzędu."""
+        ch, gap_x, gap_y, pad = 6.5, 3, 2.5, 4
+        ensure_space(ch + 3)
+        x = ML
         y = pdf.get_y()
-        pdf.set_fill_color(*ACCENT)
-        pdf.rect(ML + 1, y + 2.2, 1.8, 1.8, 'F')
-        pdf.set_xy(ML + 5, y)
-        pdf.set_font(FONT, '', 9.5)
-        pdf.set_text_color(*MAIN)
-        pdf.cell(W - 6, 6, lab, link=url)
-        pdf.set_y(y + 6.5)
+        for (_t, lab, url) in run:
+            pdf.set_font(FONT, '', 8.5)
+            w = min(max(18, pdf.get_string_width(lab) + 2 * pad), W)
+            if x + w > ML + W + 0.01:
+                y += ch + gap_y
+                x = ML
+                if y + ch > LIMIT:
+                    new_page()
+                    y = pdf.get_y()
+            pdf.set_fill_color(*LIGHT)
+            pdf.set_draw_color(225, 225, 225)
+            pdf.set_line_width(0.2)
+            pdf.rect(x, y, w, ch, 'DF')
+            pdf.set_fill_color(*ACCENT)
+            pdf.rect(x, y + ch - 0.6, w, 0.6, 'F')
+            pdf.set_xy(x, y)
+            pdf.set_font(FONT, '', 8.5)
+            pdf.set_text_color(*MAIN)
+            pdf.cell(w, ch, lab, align='C', link=url)
+            x += w + gap_x
+        pdf.set_y(y + ch + 3)
 
     def render_links(elementy):
         i = 0
         while i < len(elementy):
-            typ, lab, url, kafelek = elementy[i]
+            typ, lab, url = elementy[i]
             if typ == "head":
                 ensure_space(16)
                 y = pdf.get_y() + 1
@@ -679,16 +671,19 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 pdf.cell(W - 2, 6, lab)
                 pdf.set_y(y + 7.5)
                 i += 1
-            elif kafelek:
+            else:
                 run = []
-                while i < len(elementy) and elementy[i][0] == "link" and elementy[i][3]:
+                while i < len(elementy) and elementy[i][0] == "link":
                     run.append(elementy[i])
                     i += 1
                 draw_link_chips(run)
-            else:
-                draw_link_row(lab, url)
-                i += 1
-        pdf.set_y(pdf.get_y() + 3)
+        ensure_space(6)
+        y = pdf.get_y()
+        pdf.set_xy(ML + 1, y)
+        pdf.set_font(FONT, '', 8)
+        pdf.set_text_color(150, 150, 150)
+        pdf.cell(W - 2, 5, "Kliknij kafelek, aby otworzyć materiał.")
+        pdf.set_y(y + 7)
 
     def place_row(items, col_w, centers, max_h):
         sizes = []
