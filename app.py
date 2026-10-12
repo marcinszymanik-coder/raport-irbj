@@ -72,6 +72,69 @@ def znajdz_plik(baza):
     return None
 
 
+# ------------------------------------------------------------
+# LINKI: parser wklejonej listy (jeden wiersz = jeden element)
+#   - wiersz bez adresu URL        -> podtytuł
+#   - "Nazwa | https://..."        -> wiersz z własną nazwą
+#   - samo "https://facebook..."   -> kafelek "Post N"
+#   - inny adres                   -> wiersz ze skróconą nazwą
+# ------------------------------------------------------------
+URL_RE = re.compile(r"https?://[^\s<>\"]+")
+SPOLECZNOSC = {"facebook.com": "fb", "fb.com": "fb", "linkedin.com": "li"}
+
+
+def host_z_url(url):
+    return re.sub(r"^https?://(www\.)?", "", url, flags=re.IGNORECASE).split("/")[0].lower()
+
+
+def krotka_nazwa_url(url):
+    host = host_z_url(url)
+    path = re.sub(r"^https?://[^/]+", "", url).split("?")[0].split("#")[0]
+    segs = [s for s in path.split("/") if s]
+    if len(segs) >= 3:
+        return f"{host}/…/{segs[-2]}/{segs[-1]}"
+    return host + ("/" + "/".join(segs) if segs else "")
+
+
+def przygotuj_linki(raw):
+    """Zwraca (lista krotek (typ, etykieta, url, kafelek), liczba pominiętych duplikatów)."""
+    wynik, widziane, duplikaty = [], set(), 0
+    liczniki = {"fb": 0, "li": 0}
+    for linia in str(raw or "").splitlines():
+        s = linia.strip()
+        if not s:
+            continue
+        m = URL_RE.search(s)
+        if not m:
+            wynik.append(("head", s.strip(" :,;"), "", False))
+            continue
+        url = m.group(0).rstrip(",.;)")
+        if url in widziane:
+            duplikaty += 1
+            continue
+        widziane.add(url)
+        etykieta = s[:m.start()].strip(" |-–:,;")
+        kafelek = False
+        if not etykieta:
+            host = host_z_url(url)
+            typ = next((v for k, v in SPOLECZNOSC.items() if host.endswith(k)), None)
+            if typ:
+                liczniki[typ] += 1
+                etykieta = f"Post {liczniki[typ]}"
+                kafelek = True
+            else:
+                etykieta = krotka_nazwa_url(url)
+        wynik.append(("link", etykieta, url, kafelek))
+    return wynik, duplikaty
+
+
+def info_o_linkach(raw):
+    elementy, dup = przygotuj_linki(raw)
+    n = sum(1 for e in elementy if e[0] == "link")
+    if n:
+        st.caption(f"Rozpoznano linków: {n}" + (f" (pominięto duplikaty: {dup})" if dup else ""))
+
+
 # Stałe niezależne od motywu
 GREY = (100, 100, 100)
 ML = 18            # margines lewy/prawy
@@ -149,7 +212,8 @@ st.markdown("### Generator Raportów Zasięgowych")
 keys_to_init = [
     'firma', 'okres', 'zdarzenia', 'odslony', 'zaangazowanie',
     'zajawka', 'g_disc_odslony', 'g_disc_klik',
-    'g_wyniki_odslony', 'g_wyniki_klik', 'g_ai', 'fb_zasieg', 'podsumowanie'
+    'g_wyniki_odslony', 'g_wyniki_klik', 'g_ai', 'fb_zasieg', 'li_zasieg', 'podsumowanie',
+    'links_portal', 'links_disc', 'links_wyniki', 'links_fb', 'links_li'
 ]
 for k in keys_to_init:
     if k not in st.session_state:
@@ -324,7 +388,7 @@ KPI_OPTIONS = [
     "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Widoczność artykułu w serwisie",
     "Odsłony w Google Discover", "Kliknięcia z Google Discover",
     "Odsłony w wyszukiwarce Google", "Kliknięcia z wyszukiwarki Google",
-    "Generatywna AI", "Zasięg na Facebooku",
+    "Generatywna AI", "Zasięg na Facebooku", "Wyświetlenia na LinkedIn",
 ]
 kpi_wybrane = st.multiselect(
     "Kafelki z najważniejszymi wynikami na pierwszej stronie (zalecane 3–4; puste wartości są pomijane):",
@@ -333,11 +397,17 @@ kpi_wybrane = st.multiselect(
 )
 # Komentarz jest opcjonalny, brak atrybutu placeholder=" " uchroni go przed czerwoną ramką
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
+if "http" in podsumowanie.lower():
+    st.warning("W podsumowaniu są adresy URL. Wstaw je lepiej w polach „Linki” w odpowiednich sekcjach poniżej: "
+               "tam są skracane, klikalne i nie rwą się w połowie słowa.")
 
 st.markdown("---")
-st.subheader("Dane, opisy i grafiki dla poszczególnych sekcji")
-st.caption("Sekcje bez danych i bez grafik nie pojawią się w raporcie.")
+st.subheader("Dane, opisy, linki i grafiki dla poszczególnych sekcji")
+st.caption("Sekcje bez danych, linków i grafik nie pojawią się w raporcie.")
 UKLAD = ["1 w rzędzie", "2 kolumny"]
+POMOC_LINKI = ("Jeden wiersz = jeden element. Wiersz bez adresu staje się podtytułem. "
+               "Format „Nazwa | https://adres” nadaje własną nazwę. "
+               "Adresy z Facebooka i LinkedIna bez nazwy stają się kafelkami „Post 1”, „Post 2”… Duplikaty są pomijane.")
 
 # --- SEKCJA 1 ---
 st.markdown(f"#### 1. {NAZWA_PORTALU}")
@@ -348,6 +418,8 @@ odslony = col1b.text_input("Odsłony (Portal):", key="odslony", placeholder=" ")
 col1c, col1d = st.columns(2)
 zaangazowanie = col1c.text_input("Zaangażowanie:", key="zaangazowanie", placeholder=" ")
 zajawka = col1d.text_input("Widoczność artykułu w serwisie:", key="zajawka", placeholder=" ")
+links_portal = st.text_area("Linki do materiałów (opcjonalnie):", key="links_portal", height=100, help=POMOC_LINKI)
+info_o_linkach(links_portal)
 img_portal = st.file_uploader(f"Dodaj grafiki ({NAZWA_PORTALU})", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p1")
 uklad_portal = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u1")
 st.markdown("---")
@@ -358,6 +430,8 @@ desc_disc = st.text_area("Opis sekcji (Discover):", value="Dane obrazują widocz
 col2a, col2b = st.columns(2)
 g_disc_odslony = col2a.text_input("Google Discover - odsłony:", key="g_disc_odslony", placeholder=" ")
 g_disc_klik = col2b.text_input("Google Discover - kliknięcia:", key="g_disc_klik", placeholder=" ")
+links_disc = st.text_area("Linki (opcjonalnie):", key="links_disc", height=80, help=POMOC_LINKI)
+info_o_linkach(links_disc)
 img_disc = st.file_uploader("Dodaj grafiki (Google Discover)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p2")
 uklad_disc = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u2")
 st.markdown("---")
@@ -369,16 +443,30 @@ col3a, col3b, col3c = st.columns(3)
 g_wyniki_odslony = col3a.text_input("Google wyniki - odsłony:", key="g_wyniki_odslony", placeholder=" ")
 g_wyniki_klik = col3b.text_input("Google wyniki - kliknięcia:", key="g_wyniki_klik", placeholder=" ")
 g_ai = col3c.text_input("Generatywna AI:", key="g_ai", placeholder=" ")
+links_wyniki = st.text_area("Linki (opcjonalnie):", key="links_wyniki", height=80, help=POMOC_LINKI)
+info_o_linkach(links_wyniki)
 img_wyniki = st.file_uploader("Dodaj grafiki (Wyniki Wyszukiwania i AI)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p3")
 uklad_wyniki = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u3")
 st.markdown("---")
 
-# --- SEKCJA 4 ---
-st.markdown("#### 4. Media społecznościowe")
-desc_inne = st.text_area("Opis sekcji (Social Media):", value="Zestawienie obejmuje zasięg wygenerowany poprzez media społecznościowe (głównie Facebook), wspierający główną komunikację.", height=70, placeholder=" ")
+# --- SEKCJA 4: FACEBOOK ---
+st.markdown("#### 4. Facebook")
+desc_fb = st.text_area("Opis sekcji (Facebook):", value="Zestawienie obejmuje zasięg wygenerowany w serwisie Facebook, wspierający główną komunikację.", height=70, placeholder=" ")
 fb_zasieg = st.text_input("Zasięgi na FB:", key="fb_zasieg", placeholder=" ")
-img_inne = st.file_uploader("Dodaj grafiki (Media społecznościowe)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
-uklad_inne = st.radio("Układ grafik:", UKLAD, horizontal=True, index=1, key="u4")
+links_fb = st.text_area("Linki do postów (opcjonalnie):", key="links_fb", height=120, help=POMOC_LINKI)
+info_o_linkach(links_fb)
+img_fb = st.file_uploader("Dodaj grafiki (Facebook)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p4")
+uklad_fb = st.radio("Układ grafik:", UKLAD, horizontal=True, index=1, key="u4")
+st.markdown("---")
+
+# --- SEKCJA 5: LINKEDIN ---
+st.markdown("#### 5. LinkedIn")
+desc_li = st.text_area("Opis sekcji (LinkedIn):", value="Zestawienie obejmuje zasięg publikacji w serwisie LinkedIn, wspierający główną komunikację.", height=70, placeholder=" ")
+li_zasieg = st.text_input("Wyświetlenia na LinkedIn:", key="li_zasieg", placeholder=" ")
+links_li = st.text_area("Linki do postów (opcjonalnie):", key="links_li", height=80, help=POMOC_LINKI)
+info_o_linkach(links_li)
+img_li = st.file_uploader("Dodaj grafiki (LinkedIn)", type=["png", "jpg", "jpeg"], accept_multiple_files=True, key="p5")
+uklad_li = st.radio("Układ grafik:", UKLAD, horizontal=True, index=0, key="u5")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -451,20 +539,48 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         if pdf.get_y() + h > LIMIT:
             new_page()
 
-    def count_lines(txt, width, size=9.5):
-        pdf.set_font(FONT, '', size)
-        total = 0
+    def wrap_text(txt, width, size=9.5, style=''):
+        """Zawija tekst do podanej szerokości; długie ciągi (np. URL) łamie w razie potrzeby."""
+        pdf.set_font(FONT, style, size)
+        maxw = width - 2
+        lines = []
         for para in str(txt).split("\n"):
-            line, n = "", 1
+            if not para.strip():
+                lines.append("")
+                continue
+            line = ""
             for wd in para.split():
+                while pdf.get_string_width(wd) > maxw:
+                    cut = len(wd)
+                    while cut > 1 and pdf.get_string_width(wd[:cut]) > maxw:
+                        cut -= 1
+                    if line:
+                        lines.append(line)
+                        line = ""
+                    lines.append(wd[:cut])
+                    wd = wd[cut:]
                 t = (line + " " + wd).strip()
-                if pdf.get_string_width(t) <= width - 2:
+                if pdf.get_string_width(t) <= maxw:
                     line = t
                 else:
-                    n += 1
+                    lines.append(line)
                     line = wd
-            total += n
-        return total
+            lines.append(line)
+        return lines
+
+    def count_lines(txt, width, size=9.5):
+        return len(wrap_text(txt, width, size))
+
+    def draw_lines(lines, x, w, lh, size, color, style=''):
+        """Rysuje linie tekstu, przechodząc na nową stronę, gdy brakuje miejsca."""
+        for ln in lines:
+            ensure_space(lh)
+            y = pdf.get_y()
+            pdf.set_xy(x, y)
+            pdf.set_font(FONT, style, size)
+            pdf.set_text_color(*color)
+            pdf.cell(w, lh, ln)
+            pdf.set_y(y + lh)
 
     def prep_images(files):
         out = []
@@ -513,6 +629,67 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 pdf.multi_cell(cw - 4, 4, label, align='C')
             pdf.set_y(y + ch + 4)
 
+    def draw_link_chips(run):
+        """Kafelki 'Post N' (klikalne), po 6 w rzędzie."""
+        per_row, gap, ch = 6, 3, 6.5
+        cw = (W - gap * (per_row - 1)) / per_row
+        for start in range(0, len(run), per_row):
+            ensure_space(ch + 3)
+            y = pdf.get_y()
+            for j, (_t, lab, url, _k) in enumerate(run[start:start + per_row]):
+                x = ML + j * (cw + gap)
+                pdf.set_fill_color(*LIGHT)
+                pdf.rect(x, y, cw, ch, 'F')
+                pdf.set_fill_color(*ACCENT)
+                pdf.rect(x, y + ch - 0.6, cw, 0.6, 'F')
+                pdf.set_xy(x, y)
+                pdf.set_font(FONT, '', 8.5)
+                pdf.set_text_color(*MAIN)
+                pdf.cell(cw, ch, lab, align='C', link=url)
+            pdf.set_y(y + ch + 2.5)
+
+    def draw_link_row(lab, url):
+        """Wiersz z klikalną (skróconą w razie potrzeby) nazwą."""
+        pdf.set_font(FONT, '', 9.5)
+        maxw = W - 9
+        if pdf.get_string_width(lab) > maxw:
+            while len(lab) > 4 and pdf.get_string_width(lab + "…") > maxw:
+                lab = lab[:-1]
+            lab += "…"
+        ensure_space(7)
+        y = pdf.get_y()
+        pdf.set_fill_color(*ACCENT)
+        pdf.rect(ML + 1, y + 2.2, 1.8, 1.8, 'F')
+        pdf.set_xy(ML + 5, y)
+        pdf.set_font(FONT, '', 9.5)
+        pdf.set_text_color(*MAIN)
+        pdf.cell(W - 6, 6, lab, link=url)
+        pdf.set_y(y + 6.5)
+
+    def render_links(elementy):
+        i = 0
+        while i < len(elementy):
+            typ, lab, url, kafelek = elementy[i]
+            if typ == "head":
+                ensure_space(16)
+                y = pdf.get_y() + 1
+                pdf.set_xy(ML + 1, y)
+                pdf.set_font(FONT, 'B', 10)
+                pdf.set_text_color(*MAIN)
+                pdf.cell(W - 2, 6, lab)
+                pdf.set_y(y + 7.5)
+                i += 1
+            elif kafelek:
+                run = []
+                while i < len(elementy) and elementy[i][0] == "link" and elementy[i][3]:
+                    run.append(elementy[i])
+                    i += 1
+                draw_link_chips(run)
+            else:
+                draw_link_row(lab, url)
+                i += 1
+        pdf.set_y(pdf.get_y() + 3)
+
     def place_row(items, col_w, centers, max_h):
         sizes = []
         for it in items:
@@ -542,21 +719,26 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.rect(x, y, w, h)
         pdf.set_y(y + row_h * s + 6)
 
-    def render_section(title, desc, kpis, files, two_cols):
+    def render_section(title, desc, kpis, files, two_cols, links_raw=""):
         kpis = [(l, str(v).strip()) for l, v in kpis if str(v).strip()]
         imgs = prep_images(files)
-        if not kpis and not imgs:
+        linki, _dup = przygotuj_linki(links_raw)
+        if not kpis and not imgs and not linki:
             return
 
+        desc_lines = wrap_text(desc.strip(), W - 2, 9.5) if desc.strip() else []
+
         need = 13
-        if desc.strip():
-            need += count_lines(desc, W - 2) * 4.8 + 4
+        if desc_lines:
+            need += len(desc_lines) * 4.8 + 4
         if kpis:
             need += ((len(kpis) + 3) // 4) * 29
+        if linki:
+            need += 16
         if imgs:
             col_w = 83 if two_cols else 170
             need += min(col_w * imgs[0]["ratio"], 60)
-        ensure_space(need)
+        ensure_space(min(need, 120))
 
         y = pdf.get_y()
         pdf.set_fill_color(*MAIN)
@@ -569,15 +751,15 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.cell(W - 10, 9, title)
         pdf.set_y(y + 13)
 
-        if desc.strip():
-            pdf.set_x(ML + 1)
-            pdf.set_font(FONT, '', 9.5)
-            pdf.set_text_color(*GREY)
-            pdf.multi_cell(W - 2, 4.8, desc.strip(), align='L')
+        if desc_lines:
+            draw_lines(desc_lines, ML + 1, W - 2, 4.8, 9.5, GREY)
             pdf.set_y(pdf.get_y() + 4)
 
         if kpis:
             draw_cards(kpis)
+
+        if linki:
+            render_links(linki)
 
         if imgs:
             pdf.set_y(pdf.get_y() + 2)
@@ -666,6 +848,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Odsłony w wyszukiwarce Google": g_wyniki_odslony,
         "Kliknięcia z wyszukiwarki Google": g_wyniki_klik,
         "Generatywna AI": g_ai, "Zasięg na Facebooku": fb_zasieg,
+        "Wyświetlenia na LinkedIn": li_zasieg,
     }
     kpi_cover = [(n, str(wartosci[n]).strip()) for n in kpi_wybrane if str(wartosci.get(n, "")).strip()]
     if kpi_cover:
@@ -677,8 +860,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         draw_cards(kpi_cover, dark=True)
 
     if podsumowanie.strip():
-        lines = count_lines(podsumowanie, W - 12, 10)
-        bh = lines * 5 + 15
+        lines_p = wrap_text(podsumowanie.strip(), W - 12, 10)
+        bh = len(lines_p) * 5 + 15
         ensure_space(bh)
         y = pdf.get_y()
         pdf.set_fill_color(*LIGHT)
@@ -689,10 +872,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*LABEL)
         pdf.cell(60, 4, "PODSUMOWANIE")
-        pdf.set_xy(ML + 7, y + 9)
         pdf.set_font(FONT, '', 10)
         pdf.set_text_color(70, 70, 70)
-        pdf.multi_cell(W - 12, 5, podsumowanie.strip(), align='L')
+        for i, ln in enumerate(lines_p):
+            pdf.set_xy(ML + 7, y + 9 + i * 5)
+            pdf.cell(W - 12, 5, ln)
         pdf.set_y(y + bh + 4)
 
     pdf.set_y(pdf.get_y() + 6)
@@ -703,22 +887,26 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         ("Odsłony", odslony),
         ("Zaangażowanie", zaangazowanie),
         ("Widoczność artykułu w serwisie", zajawka),
-    ], img_portal, uklad_portal == UKLAD[1])
+    ], img_portal, uklad_portal == UKLAD[1], links_portal)
 
     render_section("Google Discover", desc_disc, [
         ("Odsłony", g_disc_odslony),
         ("Kliknięcia", g_disc_klik),
-    ], img_disc, uklad_disc == UKLAD[1])
+    ], img_disc, uklad_disc == UKLAD[1], links_disc)
 
     render_section("Wyniki wyszukiwania w wyszukiwarce Google", desc_wyniki, [
         ("Odsłony", g_wyniki_odslony),
         ("Kliknięcia", g_wyniki_klik),
         ("Generatywna AI", g_ai),
-    ], img_wyniki, uklad_wyniki == UKLAD[1])
+    ], img_wyniki, uklad_wyniki == UKLAD[1], links_wyniki)
 
-    render_section("Media społecznościowe", desc_inne, [
+    render_section("Facebook", desc_fb, [
         ("Zasięg na Facebooku", fb_zasieg),
-    ], img_inne, uklad_inne == UKLAD[1])
+    ], img_fb, uklad_fb == UKLAD[1], links_fb)
+
+    render_section("LinkedIn", desc_li, [
+        ("Wyświetlenia na LinkedIn", li_zasieg),
+    ], img_li, uklad_li == UKLAD[1], links_li)
 
     # ---------- KARTA KONTAKTOWA ----------
     if autor.strip() or email.strip() or telefon.strip():
