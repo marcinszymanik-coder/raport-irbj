@@ -6,7 +6,9 @@ import csv
 import io
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from html import unescape
 import PyPDF2
 from PIL import Image
 from streamlit_pdf_viewer import pdf_viewer
@@ -134,21 +136,28 @@ def znajdz_plik(baza):
 # ------------------------------------------------------------
 # LINKI: parser wklejonej listy (jeden wiersz = jeden element)
 #   - wiersz bez adresu URL            -> podtytuł
-#   - "Nazwa | https://..."            -> kafelek z własną nazwą
+#   - "Nazwa | https://..."            -> pozycja listy z własną nazwą
 #   - samo "https://facebook/linkedin" -> kafelek "Post N"
-#   - inny adres bez nazwy             -> kafelek z nazwą z końcówki adresu
-# Każdy link w PDF wygląda tak samo: klikalny kafelek z krótką nazwą.
+#   - inny adres bez nazwy             -> pozycja listy; tytuł pobierany ze strony (jeśli domena dozwolona),
+#                                         a w razie niepowodzenia nazwa z końcówki adresu
+# Rodzaje: "post" (kafelek), "wlasna", "auto" (obie ostatnie = wiersze listy)
 # ------------------------------------------------------------
 URL_RE = re.compile(r"https?://[^\s<>\"]+")
 SPOLECZNOSC = {"facebook.com": "fb", "fb.com": "fb", "linkedin.com": "li"}
+DOZWOLONE_HOSTY_TYTULY = ("budujemydom.pl", "budownictwob2b.pl", "instalacjeb2b.pl")
 
 
 def host_z_url(url):
-    return re.sub(r"^https?://(www\.)?", "", url, flags=re.IGNORECASE).split("/")[0].lower()
+    return re.sub(r"^https?://(www\.)?", "", url, flags=re.IGNORECASE).split("/")[0].split(":")[0].lower()
+
+
+def host_dozwolony(url):
+    host = host_z_url(url)
+    return any(host == d or host.endswith("." + d) for d in DOZWOLONE_HOSTY_TYTULY)
 
 
 def nazwa_z_url(url):
-    """Czytelna nazwa z końcówki adresu: .../121153-jak-chronic-poddasze -> 'Jak chronic poddasze'."""
+    """Zapasowa nazwa z końcówki adresu: .../121153-jak-chronic-poddasze -> 'Jak chronic poddasze'."""
     path = re.sub(r"^https?://[^/]+", "", url).split("?")[0].split("#")[0]
     segs = [s for s in path.split("/") if s]
     if not segs:
@@ -157,12 +166,11 @@ def nazwa_z_url(url):
     nazwa = re.sub(r"[-_]+", " ", slug).strip()
     if not nazwa:
         return host_z_url(url)
-    nazwa = nazwa[0].upper() + nazwa[1:]
-    return nazwa if len(nazwa) <= 32 else nazwa[:31].rstrip() + "…"
+    return nazwa[0].upper() + nazwa[1:]
 
 
 def przygotuj_linki(raw):
-    """Zwraca (lista krotek (typ, etykieta, url), liczba pominiętych duplikatów)."""
+    """Zwraca (lista krotek (typ, etykieta, url, rodzaj), liczba pominiętych duplikatów)."""
     wynik, widziane, duplikaty = [], set(), 0
     liczniki = {"fb": 0, "li": 0}
     for linia in str(raw or "").splitlines():
@@ -171,7 +179,7 @@ def przygotuj_linki(raw):
             continue
         m = URL_RE.search(s)
         if not m:
-            wynik.append(("head", s.strip(" :,;"), ""))
+            wynik.append(("head", s.strip(" :,;"), "", ""))
             continue
         url = m.group(0).rstrip(",.;)")
         if url in widziane:
@@ -179,15 +187,19 @@ def przygotuj_linki(raw):
             continue
         widziane.add(url)
         etykieta = s[:m.start()].strip(" |-–:,;")
-        if not etykieta:
+        if etykieta:
+            rodzaj = "wlasna"
+        else:
             host = host_z_url(url)
             typ = next((v for k, v in SPOLECZNOSC.items() if host.endswith(k)), None)
             if typ:
                 liczniki[typ] += 1
                 etykieta = f"Post {liczniki[typ]}"
+                rodzaj = "post"
             else:
                 etykieta = nazwa_z_url(url)
-        wynik.append(("link", etykieta, url))
+                rodzaj = "auto"
+        wynik.append(("link", etykieta, url, rodzaj))
     return wynik, duplikaty
 
 
@@ -196,6 +208,53 @@ def info_o_linkach(raw):
     n = sum(1 for e in elementy if e[0] == "link")
     if n:
         st.caption(f"Rozpoznano linków: {n}" + (f" (pominięto duplikaty: {dup})" if dup else ""))
+
+
+def _pobierz_tytul(url):
+    """Pobiera tytuł strony (og:title lub <title>). Tylko dozwolone domeny; przy błędzie zwraca ''."""
+    try:
+        if not host_dozwolony(url):
+            return ""
+        r = requests.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0 (GeneratorRaportow)"})
+        if r.status_code != 200 or not host_dozwolony(r.url):
+            return ""
+        html = r.text[:250000]
+        m = (re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
+             or re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']', html, re.I)
+             or re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S))
+        if not m:
+            return ""
+        t = unescape(re.sub(r"\s+", " ", m.group(1))).strip()
+        t = re.split(r"\s+[\|–—]\s+", t)[0]
+        t = re.sub(r"\s+-\s+(budujemydom\.pl|Budujemy Dom|budownictwob2b\.pl|Budownictwo B2B).*$", "", t, flags=re.I)
+        return t.strip()
+    except Exception:
+        return ""
+
+
+def pobierz_tytuly(urls):
+    """Równolegle pobiera tytuły; wyniki zapamiętuje w sesji, żeby nie pobierać ich ponownie."""
+    cache = st.session_state.setdefault("_tytuly", {})
+    do_pobrania = [u for u in urls if u not in cache]
+    if do_pobrania:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            wyniki = list(ex.map(_pobierz_tytul, do_pobrania))
+        for u, t in zip(do_pobrania, wyniki):
+            cache[u] = t
+    return {u: cache.get(u, "") for u in urls}
+
+
+def uzupelnij_tytuly(elementy):
+    """Dla pozycji 'auto' z dozwolonych domen podmienia nazwę z adresu na prawdziwy tytuł strony."""
+    do_pobrania = [url for (typ, _l, url, rodzaj) in elementy
+                   if typ == "link" and rodzaj == "auto" and host_dozwolony(url)]
+    tytuly = pobierz_tytuly(do_pobrania) if do_pobrania else {}
+    wynik = []
+    for typ, lab, url, rodzaj in elementy:
+        if typ == "link" and rodzaj == "auto" and tytuly.get(url):
+            lab = tytuly[url]
+        wynik.append((typ, lab, url, rodzaj))
+    return wynik
 
 
 # ------------------------------------------------------------
@@ -573,14 +632,15 @@ kpi_wybrane = st.multiselect(
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90)
 if "http" in podsumowanie.lower():
     st.warning("W podsumowaniu są adresy URL. Wstaw je lepiej w polach „Linki” w odpowiednich sekcjach poniżej: "
-               "tam są zamieniane na czytelne, klikalne kafelki.")
+               "tam są zamieniane na czytelną, klikalną listę.")
 
 st.markdown("---")
 st.subheader("Dane, opisy, linki i grafiki dla poszczególnych sekcji")
 st.caption("Sekcje bez danych, linków i grafik nie pojawią się w raporcie.")
-POMOC_LINKI = ("Jeden wiersz = jeden element. Format „Nazwa | https://adres” nadaje własną nazwę kafelkowi. "
-               "Bez nazwy: adresy z Facebooka i LinkedIna dostają „Post 1”, „Post 2”…, a pozostałe nazwę z końcówki adresu. "
-               "Wiersz bez adresu staje się podtytułem. Duplikaty są pomijane.")
+POMOC_LINKI = ("Jeden wiersz = jeden element. Adresy z Facebooka i LinkedIna dostają kafelki „Post 1”, „Post 2”… "
+               "Pozostałe adresy trafiają na listę: dla budujemydom.pl, budownictwob2b.pl i instalacjeb2b.pl tytuły "
+               "artykułów są pobierane automatycznie przy generowaniu raportu. Własną nazwę nadasz formatem "
+               "„Nazwa | https://adres”. Wiersz bez adresu staje się podtytułem. Duplikaty są pomijane.")
 
 # --- SEKCJA 1 ---
 st.markdown(f"#### 1. {NAZWA_PORTALU}")
@@ -800,12 +860,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.set_y(y + ch + 4)
 
     def draw_link_chips(run):
-        """Jednolite, klikalne kafelki z nazwą; układane po kolei, zawijane do nowego rzędu."""
+        """Posty z Facebooka / LinkedIna: równe, klikalne kafelki 'Post N', zawijane do nowego rzędu."""
         ch, gap_x, gap_y, pad = 6.5, 3, 2.5, 4
         ensure_space(ch + 3)
         x = ML
         y = pdf.get_y()
-        for (_t, lab, url) in run:
+        for (_t, lab, url, _r) in run:
             pdf.set_font(FONT, '', 8.5)
             w = min(max(18, pdf.get_string_width(lab) + 2 * pad), W)
             if x + w > ML + W + 0.01:
@@ -827,10 +887,34 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             x += w + gap_x
         pdf.set_y(y + ch + 3)
 
+    def draw_link_list(run):
+        """Artykuły i inne materiały: lista, jeden klikalny wiersz na pozycję, na pełną szerokość."""
+        maxw = W - 12
+        for (_t, lab, url, _r) in run:
+            ensure_space(7)
+            y = pdf.get_y()
+            pdf.set_font(FONT, '', 9)
+            txt = lab
+            if pdf.get_string_width(txt) > maxw:
+                while len(txt) > 4 and pdf.get_string_width(txt + "…") > maxw:
+                    txt = txt[:-1]
+                txt = txt.rstrip() + "…"
+            pdf.set_fill_color(*ACCENT)
+            pdf.rect(ML + 2, y + 2.3, 1.8, 1.8, 'F')
+            pdf.set_xy(ML + 7, y)
+            pdf.set_font(FONT, '', 9)
+            pdf.set_text_color(*MAIN)
+            pdf.cell(W - 8, 6, txt, link=url)
+            pdf.set_draw_color(232, 232, 232)
+            pdf.set_line_width(0.2)
+            pdf.line(ML + 1, y + 6.2, ML + W - 1, y + 6.2)
+            pdf.set_y(y + 6.6)
+        pdf.set_y(pdf.get_y() + 1.5)
+
     def render_links(elementy):
         i = 0
         while i < len(elementy):
-            typ, lab, url = elementy[i]
+            typ, lab, url, rodzaj = elementy[i]
             if typ == "head":
                 ensure_space(16)
                 y = pdf.get_y() + 1
@@ -841,17 +925,22 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
                 pdf.set_y(y + 7.5)
                 i += 1
             else:
+                chip = (rodzaj == "post")
                 run = []
-                while i < len(elementy) and elementy[i][0] == "link":
+                while (i < len(elementy) and elementy[i][0] == "link"
+                       and (elementy[i][3] == "post") == chip):
                     run.append(elementy[i])
                     i += 1
-                draw_link_chips(run)
+                if chip:
+                    draw_link_chips(run)
+                else:
+                    draw_link_list(run)
         ensure_space(6)
         y = pdf.get_y()
         pdf.set_xy(ML + 1, y)
         pdf.set_font(FONT, '', 8)
         pdf.set_text_color(150, 150, 150)
-        pdf.cell(W - 2, 5, "Kliknij kafelek, aby otworzyć materiał.")
+        pdf.cell(W - 2, 5, "Kliknij wybraną pozycję, aby otworzyć materiał.")
         pdf.set_y(y + 7)
 
     def place_row(items, col_w, centers, max_h):
@@ -889,6 +978,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         linki, _dup = przygotuj_linki(links_raw)
         if not kpis and not imgs and not linki:
             return
+        if any(e[0] == "link" and e[3] == "auto" and host_dozwolony(e[2]) for e in linki):
+            with st.spinner(f"Pobieram tytuły artykułów ({title})…"):
+                linki = uzupelnij_tytuly(linki)
 
         desc_lines = wrap_text(desc.strip(), W - 2, 9.5) if desc.strip() else []
 
