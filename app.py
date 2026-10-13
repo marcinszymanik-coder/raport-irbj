@@ -67,6 +67,14 @@ OSOBY = {
         "email": "izabela.konikowska@budujemydom.pl", "telefon": "507 970 743",
         "stanowisko": "Specjalista ds. reklamy",
     },
+        "Tomasz Celmer": {
+        "email": "tomasz.celmer@elektronik.com.pl",
+        "stanowisko": "Redaktor",
+    },
+    "Anna Niedźwiedź": {
+        "email": "anna.niedzwiedz@avt.pl",
+        "stanowisko": "Redaktor",
+    },
 }
 
 # ------------------------------------------------------------
@@ -709,10 +717,10 @@ data_raportu = co2.date_input("Data wykonania raportu:", value=date.today())
 if wybrana_osoba in OSOBY:
     _dane_osoby = OSOBY[wybrana_osoba]
     autor = wybrana_osoba
-    stanowisko = _dane_osoby["stanowisko"]
-    email = _dane_osoby["email"]
-    telefon = _dane_osoby["telefon"]
-    co1.caption(f"{stanowisko} · {email} · {telefon}")
+    stanowisko = _dane_osoby.get("stanowisko", "")
+    email = _dane_osoby.get("email", "")
+    telefon = _dane_osoby.get("telefon", "")
+    co1.caption(" · ".join(x for x in [stanowisko, email, telefon] if x))
 else:
     autor = stanowisko = email = telefon = ""
 
