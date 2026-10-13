@@ -464,7 +464,7 @@ TOP2 = 32          # początek treści na stronach 2+
 # ============================================================
 # LOGOWANIE OAUTH (Google Workspace)
 # ============================================================
-DOZWOLONE_DOMENY = ("budujemydom.pl", "zielonyogrodek.pl", "ep.pl", "avt.pl")
+DOZWOLONE_DOMENY = ("budujemydom.pl", "zielonyogrodek.pl", "ep.pl", "avt.pl", "elektronik.com.pl")
 
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_oauth"]["client_id"],
