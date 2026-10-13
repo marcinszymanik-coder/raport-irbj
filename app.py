@@ -36,8 +36,11 @@ font_bold_file = "DejaVuSans-Bold.ttf"
 
 # ------------------------------------------------------------
 # OSOBY KONTAKTOWE (lista rozwijana "Dla kogo przygotowujesz raport")
+# Pola każdej osoby: email, telefon, telefon_kom (opcjonalnie), stanowisko (opcjonalnie)
 # ------------------------------------------------------------
 BRAK_OSOBY = "— wybierz osobę —"
+
+# Lista ogólna: używana dla wersji raportu, które nie mają własnej listy poniżej
 OSOBY = {
     "Ewa Zuchora": {
         "email": "ewa.zuchora@budujemydom.pl", "telefon": "668 04 54 77",
@@ -67,7 +70,7 @@ OSOBY = {
         "email": "izabela.konikowska@budujemydom.pl", "telefon": "507 970 743",
         "stanowisko": "Specjalista ds. reklamy",
     },
-        "Tomasz Celmer": {
+    "Tomasz Celmer": {
         "email": "tomasz.celmer@elektronik.com.pl",
         "stanowisko": "Redaktor",
     },
@@ -76,6 +79,50 @@ OSOBY = {
         "stanowisko": "Redaktor",
     },
 }
+
+# Osobne listy dla wybranych wersji raportu (klucz = nazwa wersji z MOTYWY)
+OSOBY_WG_MOTYWU = {
+    "AutomatykaB2B": {
+        "Katarzyna Gugała": {
+            "email": "k.gugala@automatykaB2B.pl",
+            "telefon": "22 257 84 64", "telefon_kom": "+48 601 131 953",
+            "stanowisko": "Specjalista ds. reklamy",
+        },
+        "Bożena Krzykawska": {
+            "email": "b.krzykawska@automatykaB2B.pl",
+            "telefon": "22 257 84 42",
+            "stanowisko": "Specjalista ds. reklamy",
+        },
+        "Grzegorz Krzykawski": {
+            "email": "g.krzykawski@automatykaB2B.pl",
+            "telefon": "22 257 84 60",
+            "stanowisko": "Specjalista ds. reklamy",
+        },
+    },
+    "ElektronikaB2B": {
+        "Bożena Krzykawska": {
+            "email": "bozena.krzykawska@elektronik.com.pl",
+            "telefon": "22 257 84 42",
+            "stanowisko": "Specjalista ds. reklamy",
+        },
+        "Katarzyna Gugała": {
+            "email": "katarzyna.gugala@elektronik.com.pl",
+            "telefon": "22 257 84 64",
+            "stanowisko": "Specjalista ds. reklamy",
+        },
+        "Grzegorz Krzykawski": {
+            "email": "grzegorz.krzykawski@elektronik.com.pl",
+            "telefon": "22 257 84 60",
+            "stanowisko": "Specjalista ds. reklamy",
+        },
+    },
+}
+
+
+def osoby_dla_motywu(nazwa_motywu):
+    """Lista osób kontaktowych dla wybranej wersji raportu (własna lub ogólna)."""
+    return OSOBY_WG_MOTYWU.get(nazwa_motywu, OSOBY)
+
 
 # ------------------------------------------------------------
 # SŁOWNICZEK POJĘĆ (pokazywany na końcu raportu tylko dla wypełnionych pól)
@@ -205,7 +252,7 @@ POLA_LICZBOWE = {"zdarzenia", "odslony", "g_disc_odslony", "g_disc_klik", "g_wyn
                  "g_wyniki_klik", "g_ai", "fb_zasieg", "li_zasieg"}
 KLUCZE_TEKSTOWE = {k for k, _ in POLA_CSV}
 USTAWIENIA_CSV = [
-    ("osoba", "Osoba kontaktowa: " + " / ".join(OSOBY.keys())),
+    ("osoba", "Osoba kontaktowa (imię i nazwisko z listy dla wybranej wersji raportu)"),
     ("kpi_wybrane", "Kafelki na okładce (rozdziel znakiem |)"),
     ("motyw", "Wersja raportu: " + " / ".join(MOTYWY.keys())),
     ("logo_wariant", "Logo (tylko budujemydom.pl): Czerwone / Szare"),
@@ -427,19 +474,13 @@ def csv_import(plik):
                     pominiete.append(f"kafelek „{x}”")
             st.session_state["kpi_wybrane"] = poprawne
             zastosowano += 1
-        elif klucz == "osoba":
-            if val.strip() in OSOBY:
-                st.session_state["osoba"] = val.strip()
-                zastosowano += 1
-            elif val.strip():
-                pominiete.append(f"osoba „{val.strip()}”")
         elif klucz == "motyw":
             if val.strip() in MOTYWY:
                 st.session_state["motyw"] = val.strip()
                 zastosowano += 1
             elif val.strip():
                 pominiete.append(f"wersja raportu „{val.strip()}”")
-        elif klucz == "logo_wariant":
+        elif klucz in ("logo_wariant", "osoba"):
             pass   # obsługiwane niżej, po ustaleniu motywu
         elif klucz in DOMYSLNY_UKLAD:
             if val.strip() in UKLAD:
@@ -450,8 +491,9 @@ def csv_import(plik):
         else:
             pominiete.append(f"nieznany klucz „{klucz}”")
 
+    motyw_koncowy = st.session_state.get("motyw", list(MOTYWY.keys())[0])
+
     if "logo_wariant" in wartosci and wartosci["logo_wariant"].strip():
-        motyw_koncowy = st.session_state.get("motyw", list(MOTYWY.keys())[0])
         dostepne = MOTYWY[motyw_koncowy]["loga"]
         if len(dostepne) > 1:
             if wartosci["logo_wariant"].strip() in dostepne:
@@ -459,6 +501,13 @@ def csv_import(plik):
                 zastosowano += 1
             else:
                 pominiete.append(f"logo „{wartosci['logo_wariant'].strip()}”")
+
+    if "osoba" in wartosci and wartosci["osoba"].strip():
+        if wartosci["osoba"].strip() in osoby_dla_motywu(motyw_koncowy):
+            st.session_state["osoba"] = wartosci["osoba"].strip()
+            zastosowano += 1
+        else:
+            pominiete.append(f"osoba „{wartosci['osoba'].strip()}” (brak na liście dla wersji „{motyw_koncowy}”)")
     return zastosowano, pominiete
 
 
@@ -706,23 +755,30 @@ with col_firma3:
     logo_klienta = st.file_uploader("Wgraj logo klienta (opcjonalnie)", type=["png", "jpg", "jpeg"])
 
 st.markdown("#### Osoba kontaktowa w raporcie")
+dostepne_osoby = osoby_dla_motywu(wybor_motywu)
+# Jeśli wybrana wcześniej osoba nie występuje na liście tej wersji raportu, wracamy do pustego wyboru
+if st.session_state.get("osoba") not in ([BRAK_OSOBY] + list(dostepne_osoby.keys())):
+    st.session_state["osoba"] = BRAK_OSOBY
+
 co1, co2 = st.columns([3, 1.5])
 wybrana_osoba = co1.selectbox(
-    "Dla kogo przygotowujesz raport (jej dane trafią na okładkę i do stopki „Masz pytania?”):",
-    [BRAK_OSOBY] + list(OSOBY.keys()),
+    "Dla kogo przygotowujesz raport (jej dane trafią na okładkę i do stopki „Masz pytania?”; "
+    "lista zależy od wybranej wersji raportu):",
+    [BRAK_OSOBY] + list(dostepne_osoby.keys()),
     key="osoba",
 )
 data_raportu = co2.date_input("Data wykonania raportu:", value=date.today())
 
-if wybrana_osoba in OSOBY:
-    _dane_osoby = OSOBY[wybrana_osoba]
+if wybrana_osoba in dostepne_osoby:
+    _dane_osoby = dostepne_osoby[wybrana_osoba]
     autor = wybrana_osoba
     stanowisko = _dane_osoby.get("stanowisko", "")
     email = _dane_osoby.get("email", "")
     telefon = _dane_osoby.get("telefon", "")
-    co1.caption(" · ".join(x for x in [stanowisko, email, telefon] if x))
+    telefon_kom = _dane_osoby.get("telefon_kom", "")
+    co1.caption(" · ".join(x for x in [stanowisko, email, telefon, telefon_kom] if x))
 else:
-    autor = stanowisko = email = telefon = ""
+    autor = stanowisko = email = telefon = telefon_kom = ""
 
 st.markdown("---")
 st.subheader("Strona tytułowa: podsumowanie")
@@ -837,7 +893,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         st.error(f"Brak pliku {font_file} w folderze aplikacji. Bez niego polskie znaki nie zadziałają.")
         st.stop()
 
-    if wybrana_osoba not in OSOBY:
+    if wybrana_osoba not in dostepne_osoby:
         st.error("Wybierz z listy osobę kontaktową, dla której przygotowujesz raport (sekcja „Osoba kontaktowa w raporcie”).")
         st.stop()
 
@@ -1387,13 +1443,45 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         render_slowniczek(wpisy_slowniczka)
 
     # ---------- KARTA KONTAKTOWA ----------
-    if autor.strip() or email.strip() or telefon.strip():
-        ensure_space(36)
+    if autor.strip() or email.strip() or telefon.strip() or telefon_kom.strip():
+        czesci_kontaktu = []
+        if email.strip():
+            czesci_kontaktu.append(f"E-mail: {email.strip()}")
+        if telefon.strip():
+            czesci_kontaktu.append(f"Tel.: {telefon.strip()}")
+        if telefon_kom.strip():
+            czesci_kontaktu.append(f"Tel. kom.: {telefon_kom.strip()}")
+
+        separator = "      "
+        pdf.set_font(FONT, '', 9.5)
+        linie_kontaktu = []
+        if czesci_kontaktu:
+            jedna_linia = separator.join(czesci_kontaktu)
+            if pdf.get_string_width(jedna_linia) <= W - 14:
+                linie_kontaktu = [jedna_linia]
+            else:
+                # e-mail w pierwszej linii, telefony w drugiej
+                mail_czesci = [c for c in czesci_kontaktu if c.startswith("E-mail")]
+                tel_czesci = [c for c in czesci_kontaktu if not c.startswith("E-mail")]
+                linie_kontaktu = [x for x in [separator.join(mail_czesci), separator.join(tel_czesci)] if x]
+
+        # pozycje elementów karty (względem jej górnej krawędzi)
+        kursor = 9.5
+        if autor.strip():
+            kursor = 17.0
+        stanowisko_y = None
+        if stanowisko.strip():
+            stanowisko_y = kursor
+            kursor += 6.5
+        kontakt_y = kursor
+        wysokosc_karty = max(31.0, kontakt_y + len(linie_kontaktu) * 5.5 + 2.5)
+
+        ensure_space(wysokosc_karty + 5)
         y = pdf.get_y() + 2
         pdf.set_fill_color(*LIGHT)
-        pdf.rect(ML, y, W, 31, 'F')
+        pdf.rect(ML, y, W, wysokosc_karty, 'F')
         pdf.set_fill_color(*ACCENT)
-        pdf.rect(ML, y, 2.5, 31, 'F')
+        pdf.rect(ML, y, 2.5, wysokosc_karty, 'F')
         pdf.set_xy(ML + 8, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*LABEL)
@@ -1403,22 +1491,17 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.set_font(FONT, 'B', 13)
             pdf.set_text_color(*MAIN)
             pdf.cell(W - 12, 7, autor.strip())
-        if stanowisko.strip():
-            pdf.set_xy(ML + 8, y + 17)
+        if stanowisko_y is not None:
+            pdf.set_xy(ML + 8, y + stanowisko_y)
             pdf.set_font(FONT, '', 10)
             pdf.set_text_color(*GREY)
             pdf.cell(W - 12, 5, stanowisko.strip())
-        kontakt = []
-        if email.strip():
-            kontakt.append(f"E-mail: {email.strip()}")
-        if telefon.strip():
-            kontakt.append(f"Tel.: {telefon.strip()}")
-        if kontakt:
-            pdf.set_xy(ML + 8, y + 23.5)
+        for i, linia in enumerate(linie_kontaktu):
+            pdf.set_xy(ML + 8, y + kontakt_y + i * 5.5)
             pdf.set_font(FONT, '', 9.5)
             pdf.set_text_color(70, 70, 70)
-            pdf.cell(W - 12, 5, "      ".join(kontakt))
-        pdf.set_y(y + 35)
+            pdf.cell(W - 12, 5, linia)
+        pdf.set_y(y + wysokosc_karty + 4)
 
     # ---------- WYNIK ----------
     try:
