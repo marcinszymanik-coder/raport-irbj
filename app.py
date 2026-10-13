@@ -141,6 +141,14 @@ MOTYWY = {
             "AutomatykaB2B": ("logo-automatykab2b", 54, 36),
         },
     },
+    "ElektronikaB2B": {
+        "portal": "Portal ElektronikaB2B",
+        "main": (104, 114, 128), "accent": (217, 80, 65), "light": (247, 245, 245),
+        "bar": (104, 114, 128), "line": (217, 80, 65), "label": (217, 80, 65),
+        "loga": {
+            "ElektronikaB2B": ("logo-elektronikab2b", 54, 36),
+        },
+    },
 }
 
 UKLAD = ["1 w rzędzie", "2 kolumny"]
