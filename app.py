@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from html import unescape
 import PyPDF2
-from PIL import Image
+from PIL import Image, ImageChops
 from streamlit_pdf_viewer import pdf_viewer
 
 # ============================================================
@@ -61,7 +61,7 @@ OSOBY = {
         "email": "dorota.chrzaszcz@budujemydom.pl", "telefon": "606 887 927",
         "stanowisko": "Specjalista ds. reklamy",
     },
-        "Iwona Fijewska": {
+    "Iwona Fijewska": {
         "email": "iwona.fijewska@budujemydom.pl", "telefon": "605 078 601",
         "stanowisko": "Specjalista ds. reklamy",
     },
@@ -85,7 +85,7 @@ SLOWNICZEK = {
     "wyniki": (
         "Wyniki wyszukiwania w wyszukiwarce Google",
         "Organiczne (niereklamowe) wyniki, które Google pokazuje w odpowiedzi na wpisaną frazę. "
-        " Odsłony to liczba wyświetlonych linków do materiału w wynikach wyszukiwania, "
+        "Odsłony to liczba wyświetlonych linków do materiału w wynikach wyszukiwania, "
         "a kliknięcia to liczba przejść z wyników na stronę z materiałem.",
     ),
     "ai": (
@@ -98,6 +98,7 @@ SLOWNICZEK = {
 
 # ------------------------------------------------------------
 # MOTYWY: kolorystyka raportu (RGB) + dostępne logo
+#   portal - tytuł pierwszej sekcji raportu
 #   main   - górny pasek, nagłówki sekcji, ciemne kafelki, tytuły, wartości
 #   accent - paski akcentowe na kafelkach i nagłówkach
 #   light  - tło jasnych kafelków i ramek
@@ -122,6 +123,22 @@ MOTYWY = {
         "loga": {
             "Czerwone": ("logo-budujemydom-czerwone", 46, 30),
             "Szare": ("logo-budujemydom-szare", 46, 30),
+        },
+    },
+    "Elportal": {
+        "portal": "Elportal",
+        "main": (100, 110, 117), "accent": (205, 23, 25), "light": (244, 245, 246),
+        "bar": (100, 110, 117), "line": (205, 23, 25), "label": (205, 23, 25),
+        "loga": {
+            "Elportal": ("logo-elportal", 60, 40),
+        },
+    },
+    "AutomatykaB2B": {
+        "portal": "Portal AutomatykaB2B",
+        "main": (104, 114, 128), "accent": (10, 105, 175), "light": (243, 246, 250),
+        "bar": (104, 114, 128), "line": (10, 105, 175), "label": (10, 105, 175),
+        "loga": {
+            "AutomatykaB2B": ("logo-automatykab2b", 54, 36),
         },
     },
 }
@@ -192,6 +209,25 @@ def znajdz_plik(baza):
         if os.path.exists(baza + ext):
             return baza + ext
     return None
+
+
+def przygotuj_logo(sciezka):
+    """Wczytuje logo i przycina puste (białe lub przezroczyste) marginesy.
+    Zwraca (bufor PNG, proporcje wysokość/szerokość) albo (None, None)."""
+    try:
+        im = Image.open(sciezka).convert("RGBA")
+        na_bialym = Image.alpha_composite(Image.new("RGBA", im.size, (255, 255, 255, 255)), im).convert("RGB")
+        roznica = ImageChops.difference(na_bialym, Image.new("RGB", na_bialym.size, (255, 255, 255)))
+        maska = roznica.convert("L").point(lambda p: 255 if p > 12 else 0)
+        ramka = maska.getbbox()
+        if ramka:
+            im = im.crop(ramka)
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        buf.seek(0)
+        return buf, im.height / im.width
+    except Exception:
+        return None, None
 
 
 # ------------------------------------------------------------
@@ -465,6 +501,7 @@ if "user_email" not in st.session_state:
                      + ", ".join("@" + d for d in DOZWOLONE_DOMENY)
                      + f". Próba logowania z adresu: {login_email}")
     st.stop()
+
 email_user = st.session_state.user_email
 
 with st.sidebar:
@@ -644,6 +681,9 @@ if logo_raport is None:
 if logo_raport:
     st.image(logo_raport, width=170)
 
+# Logo przycięte z pustych marginesów (używane w PDF)
+logo_buf, logo_ratio = przygotuj_logo(logo_raport) if logo_raport else (None, None)
+
 MAIN = motyw["main"]
 NAZWA_PORTALU = motyw["portal"]
 ACCENT = motyw["accent"]
@@ -816,12 +856,14 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_fill_color(*BAR)
             self.rect(0, 0, 210, 6, 'F')
             if self.page_no() == 1:
-                if logo_raport:
-                    self.image(logo_raport, x=ML, y=12, w=w_cover)
+                if logo_buf:
+                    logo_buf.seek(0)
+                    self.image(logo_buf, x=ML, y=12, w=w_cover)
                 self.set_y(36)
             else:
-                if logo_raport:
-                    self.image(logo_raport, x=ML, y=10, w=w_small)
+                if logo_buf:
+                    logo_buf.seek(0)
+                    self.image(logo_buf, x=ML, y=10, w=w_small)
                 self.set_xy(ML + 80, 12)
                 self.set_font(FONT, '', 8)
                 self.set_text_color(140, 140, 140)
@@ -1210,13 +1252,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     # ---------- STRONA TYTUŁOWA ----------
     pdf.add_page()
 
-    # Wysokość logo raportu -> wyznacza oś, na której ląduje logo klienta
-    pf_h = 11.0
-    try:
-        with Image.open(logo_raport) as pim:
-            pf_h = w_cover * pim.height / pim.width
-    except Exception:
-        pass
+    # Wysokość logo raportu (po przycięciu marginesów) -> oś, na której ląduje logo klienta
+    pf_h = w_cover * logo_ratio if logo_ratio else 11.0
     pf_top, pf_bottom = 12, 12 + pf_h
     cy = pf_top + pf_h / 2
 
