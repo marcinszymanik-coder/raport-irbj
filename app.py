@@ -422,7 +422,7 @@ TOP2 = 32          # początek treści na stronach 2+
 # ============================================================
 # LOGOWANIE OAUTH (Google Workspace)
 # ============================================================
-DOZWOLONA_DOMENA = "budujemydom.pl"
+DOZWOLONE_DOMENY = ("budujemydom.pl", "zielonyogrodek.pl", "ep.pl", "avt.pl")
 
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_oauth"]["client_id"],
@@ -454,15 +454,17 @@ if "user_email" not in st.session_state:
         token = result["token"]["access_token"]
         user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
 
-        login_email = user_info.get("email", "").lower()
-        if login_email.endswith("@" + DOZWOLONA_DOMENA) and user_info.get("email_verified"):
+        login_email = user_info.get("email", "").strip().lower()
+        domena = login_email.rsplit("@", 1)[-1] if "@" in login_email else ""
+        if domena in DOZWOLONE_DOMENY and user_info.get("email_verified"):
             st.session_state.user_email = login_email
             st.session_state.user_name = user_info.get("name", "")
             st.rerun()
         else:
-            st.error(f"Dostęp tylko dla zweryfikowanych kont @{DOZWOLONA_DOMENA}. Próba logowania z adresu: {login_email}")
+            st.error("Dostęp tylko dla zweryfikowanych kont firmowych z domen: "
+                     + ", ".join("@" + d for d in DOZWOLONE_DOMENY)
+                     + f". Próba logowania z adresu: {login_email}")
     st.stop()
-
 email_user = st.session_state.user_email
 
 with st.sidebar:
