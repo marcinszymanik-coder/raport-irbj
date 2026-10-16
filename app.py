@@ -86,34 +86,28 @@ OSOBY_WG_MOTYWU = {
         "Katarzyna Gugała": {
             "email": "k.gugala@automatykaB2B.pl",
             "telefon": "22 257 84 64", "telefon_kom": "+48 601 131 953",
-            "stanowisko": "Specjalista ds. reklamy",
         },
         "Bożena Krzykawska": {
             "email": "b.krzykawska@automatykaB2B.pl",
             "telefon": "22 257 84 42",
-            "stanowisko": "Specjalista ds. reklamy",
         },
         "Grzegorz Krzykawski": {
             "email": "g.krzykawski@automatykaB2B.pl",
             "telefon": "22 257 84 60",
-            "stanowisko": "Specjalista ds. reklamy",
         },
     },
     "ElektronikaB2B": {
         "Bożena Krzykawska": {
             "email": "bozena.krzykawska@elektronik.com.pl",
             "telefon": "22 257 84 42",
-            "stanowisko": "Specjalista ds. reklamy",
         },
         "Katarzyna Gugała": {
             "email": "katarzyna.gugala@elektronik.com.pl",
             "telefon": "22 257 84 64",
-            "stanowisko": "Specjalista ds. reklamy",
         },
         "Grzegorz Krzykawski": {
             "email": "grzegorz.krzykawski@elektronik.com.pl",
             "telefon": "22 257 84 60",
-            "stanowisko": "Specjalista ds. reklamy",
         },
     },
 }
@@ -252,6 +246,7 @@ POLA_LICZBOWE = {"zdarzenia", "odslony", "g_disc_odslony", "g_disc_klik", "g_wyn
                  "g_wyniki_klik", "g_ai", "fb_zasieg", "li_zasieg"}
 KLUCZE_TEKSTOWE = {k for k, _ in POLA_CSV}
 USTAWIENIA_CSV = [
+    ("bez_osoby", "Bez osoby kontaktowej w raporcie (TAK / NIE)"),
     ("osoba", "Osoba kontaktowa (imię i nazwisko z listy dla wybranej wersji raportu)"),
     ("kpi_wybrane", "Kafelki na okładce (rozdziel znakiem |)"),
     ("motyw", "Wersja raportu: " + " / ".join(MOTYWY.keys())),
@@ -437,6 +432,8 @@ def csv_eksport():
     for klucz, opis in USTAWIENIA_CSV:
         if klucz == "kpi_wybrane":
             wartosc = " | ".join(st.session_state.get("kpi_wybrane", []) or [])
+        elif klucz == "bez_osoby":
+            wartosc = "TAK" if st.session_state.get("bez_osoby") else "NIE"
         elif klucz == "osoba":
             wartosc = st.session_state.get("osoba", "")
             wartosc = "" if wartosc == BRAK_OSOBY else wartosc
@@ -473,6 +470,9 @@ def csv_import(plik):
                 if x not in KPI_OPTIONS:
                     pominiete.append(f"kafelek „{x}”")
             st.session_state["kpi_wybrane"] = poprawne
+            zastosowano += 1
+        elif klucz == "bez_osoby":
+            st.session_state["bez_osoby"] = val.strip().lower() in ("tak", "true", "1", "yes")
             zastosowano += 1
         elif klucz == "motyw":
             if val.strip() in MOTYWY:
@@ -596,6 +596,8 @@ if "motyw" not in st.session_state:
     st.session_state["motyw"] = list(MOTYWY.keys())[0]
 if "osoba" not in st.session_state:
     st.session_state["osoba"] = BRAK_OSOBY
+if "bez_osoby" not in st.session_state:
+    st.session_state["bez_osoby"] = False
 
 # ============================================================
 # PARSOWANIE PDF Z GOOGLE ANALYTICS
@@ -760,16 +762,25 @@ dostepne_osoby = osoby_dla_motywu(wybor_motywu)
 if st.session_state.get("osoba") not in ([BRAK_OSOBY] + list(dostepne_osoby.keys())):
     st.session_state["osoba"] = BRAK_OSOBY
 
+bez_osoby = st.checkbox(
+    "Nie pokazuj osoby kontaktowej w raporcie (bez karty „Masz pytania?” i bez linii „Przygotował(a)” na okładce)",
+    key="bez_osoby",
+)
+
 co1, co2 = st.columns([3, 1.5])
 wybrana_osoba = co1.selectbox(
     "Dla kogo przygotowujesz raport (jej dane trafią na okładkę i do stopki „Masz pytania?”; "
     "lista zależy od wybranej wersji raportu):",
     [BRAK_OSOBY] + list(dostepne_osoby.keys()),
     key="osoba",
+    disabled=bez_osoby,
 )
 data_raportu = co2.date_input("Data wykonania raportu:", value=date.today())
 
-if wybrana_osoba in dostepne_osoby:
+if bez_osoby:
+    autor = stanowisko = email = telefon = telefon_kom = ""
+    co1.caption("Raport zostanie wygenerowany bez osoby kontaktowej.")
+elif wybrana_osoba in dostepne_osoby:
     _dane_osoby = dostepne_osoby[wybrana_osoba]
     autor = wybrana_osoba
     stanowisko = _dane_osoby.get("stanowisko", "")
@@ -893,8 +904,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         st.error(f"Brak pliku {font_file} w folderze aplikacji. Bez niego polskie znaki nie zadziałają.")
         st.stop()
 
-    if wybrana_osoba not in dostepne_osoby:
-        st.error("Wybierz z listy osobę kontaktową, dla której przygotowujesz raport (sekcja „Osoba kontaktowa w raporcie”).")
+    if not bez_osoby and wybrana_osoba not in dostepne_osoby:
+        st.error("Wybierz z listy osobę kontaktową albo zaznacz „Nie pokazuj osoby kontaktowej w raporcie”.")
         st.stop()
 
     FONT = 'DejaVu'
@@ -1442,7 +1453,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             wpisy_slowniczka.append(SLOWNICZEK["ai"])
         render_slowniczek(wpisy_slowniczka)
 
-    # ---------- KARTA KONTAKTOWA ----------
+    # ---------- KARTA KONTAKTOWA (pomijana, gdy brak osoby kontaktowej) ----------
     if autor.strip() or email.strip() or telefon.strip() or telefon_kom.strip():
         czesci_kontaktu = []
         if email.strip():
