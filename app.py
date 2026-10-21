@@ -631,8 +631,10 @@ def sprawdz_token(token):
 
 
 cookies = CookieController()
+
+
 def cookie_get(nazwa):
-    """Bezpieczny odczyt: zwraca None, gdy komponent ciasteczek jeszcze się nie załadował."""
+    """Bezpieczny odczyt: None, gdy komponent ciasteczek jeszcze się nie załadował."""
     try:
         return cookies.get(nazwa)
     except Exception:
@@ -653,6 +655,7 @@ def cookie_remove(nazwa):
     except Exception:
         pass
 
+
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_oauth"]["client_id"],
     client_secret=st.secrets["google_oauth"]["client_secret"],
@@ -671,9 +674,9 @@ if "user_email" not in st.session_state:
             if ok:
                 st.session_state.user_email, st.session_state.user_name = ok
                 st.rerun()
-        elif not st.session_state.get("_cookie_sprawdzone"):
+        elif st.session_state.get("_cookie_proby", 0) < 2:
             # komponent ciasteczek potrzebuje chwili przy pierwszym uruchomieniu
-            st.session_state["_cookie_sprawdzone"] = True
+            st.session_state["_cookie_proby"] = st.session_state.get("_cookie_proby", 0) + 1
             time.sleep(0.7)
             st.rerun()
 
@@ -717,8 +720,7 @@ with st.sidebar:
     st.write(f"**{st.session_state.get('user_name', email_user)}**")
     st.caption(email_user)
     if st.button("Wyloguj"):
-        try:
-            cookie_remove(COOKIE_NAME)
+        cookie_remove(COOKIE_NAME)
         st.session_state.pop("user_email", None)
         st.session_state.pop("user_name", None)
         st.session_state["_wylogowany"] = True
