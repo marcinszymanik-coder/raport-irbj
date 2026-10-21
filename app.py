@@ -631,6 +631,27 @@ def sprawdz_token(token):
 
 
 cookies = CookieController()
+def cookie_get(nazwa):
+    """Bezpieczny odczyt: zwraca None, gdy komponent ciasteczek jeszcze się nie załadował."""
+    try:
+        return cookies.get(nazwa)
+    except Exception:
+        return None
+
+
+def cookie_set(nazwa, wartosc, max_age):
+    try:
+        cookies.set(nazwa, wartosc, max_age=max_age, same_site="lax")
+        return True
+    except Exception:
+        return False
+
+
+def cookie_remove(nazwa):
+    try:
+        cookies.remove(nazwa)
+    except Exception:
+        pass
 
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_oauth"]["client_id"],
@@ -644,7 +665,7 @@ oauth2 = OAuth2Component(
 if "user_email" not in st.session_state:
     # 1) automatyczne logowanie z ciasteczka (chyba że użytkownik właśnie się wylogował)
     if not st.session_state.get("_wylogowany"):
-        token_cookie = cookies.get(COOKIE_NAME)
+        token_cookie = cookie_get(COOKIE_NAME)
         if token_cookie:
             ok = sprawdz_token(token_cookie)
             if ok:
@@ -653,7 +674,7 @@ if "user_email" not in st.session_state:
         elif not st.session_state.get("_cookie_sprawdzone"):
             # komponent ciasteczek potrzebuje chwili przy pierwszym uruchomieniu
             st.session_state["_cookie_sprawdzone"] = True
-            time.sleep(0.5)
+            time.sleep(0.7)
             st.rerun()
 
     # 2) zwykłe logowanie Google
@@ -677,8 +698,7 @@ if "user_email" not in st.session_state:
         domena = login_email.rsplit("@", 1)[-1] if "@" in login_email else ""
         if domena in DOZWOLONE_DOMENY and user_info.get("email_verified"):
             nazwa_usera = user_info.get("name", "")
-            cookies.set(COOKIE_NAME, utworz_token(login_email, nazwa_usera),
-                        max_age=COOKIE_SEKUNDY, same_site="lax")
+            cookie_set(COOKIE_NAME, utworz_token(login_email, nazwa_usera), COOKIE_SEKUNDY)
             st.session_state.user_email = login_email
             st.session_state.user_name = nazwa_usera
             st.session_state.pop("_wylogowany", None)
@@ -698,9 +718,7 @@ with st.sidebar:
     st.caption(email_user)
     if st.button("Wyloguj"):
         try:
-            cookies.remove(COOKIE_NAME)
-        except Exception:
-            pass
+            cookie_remove(COOKIE_NAME)
         st.session_state.pop("user_email", None)
         st.session_state.pop("user_name", None)
         st.session_state["_wylogowany"] = True
