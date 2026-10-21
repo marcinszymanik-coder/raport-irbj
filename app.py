@@ -121,7 +121,7 @@ def osoby_dla_motywu(nazwa_motywu):
 
 
 # ------------------------------------------------------------
-# SŁOWNICZEK POJĘĆ (PL)
+# SŁOWNICZEK POJĘĆ: domyślne teksty (PL i EN); w formularzu można je edytować
 # ------------------------------------------------------------
 SLOWNICZEK = {
     "discover": (
@@ -143,6 +143,45 @@ SLOWNICZEK = {
         "i podlinkowana. Wartość oznacza liczbę wyświetleń materiału w takich odpowiedziach.",
     ),
 }
+
+SLOWNICZEK_EN = {
+    "discover": (
+        "Google Discover",
+        "A personalised content stream in the Google app and on the Google home page on mobile. "
+        "It shows users articles matched to their interests before they type anything into the search engine. "
+        "Impressions are the number of times the material was displayed in this stream, and clicks are the number "
+        "of visits to the page with the material.",
+    ),
+    "wyniki": (
+        "Google Search results",
+        "Organic (non-advertising) results that Google displays in response to a typed query. "
+        "Impressions are the number of times a link to the material was displayed in search results, "
+        "and clicks are the number of visits to the page with the material from those results.",
+    ),
+    "ai": (
+        "Generative AI",
+        "Answers created by artificial intelligence directly in Google Search "
+        "(e.g. AI summaries above search results) in which the content is used as a source "
+        "and linked. The value is the number of times the material was displayed in such answers.",
+    ),
+}
+
+SL_ID = ["discover", "wyniki", "ai"]
+SLOWNICZEK_WG_JEZYKA = {"pl": SLOWNICZEK, "en": SLOWNICZEK_EN}
+
+
+def sl_key(pojecie, lang, czesc):
+    """Klucz w session_state: czesc = 't' (tytuł) albo 'd' (definicja)."""
+    return f"sl_{pojecie}_{lang}_{czesc}"
+
+
+def przywroc_slowniczek(lang):
+    """Callback przycisku: przywraca domyślne teksty słowniczka dla danego języka."""
+    for p in SL_ID:
+        tytul, definicja = SLOWNICZEK_WG_JEZYKA[lang][p]
+        st.session_state[sl_key(p, lang, "t")] = tytul
+        st.session_state[sl_key(p, lang, "d")] = definicja
+
 
 # ------------------------------------------------------------
 # JĘZYK RAPORTU (tylko treści widoczne w PDF; interfejs zostaje po polsku)
@@ -194,28 +233,6 @@ DOMYSLNE_OPISY_EN = {
     "desc_wyniki": "The results show organic reach in traditional Google Search and in Generative AI modules.",
     "desc_fb": "The summary covers the reach generated on Facebook, supporting the main communication.",
     "desc_li": "The summary covers the reach of publications on LinkedIn, supporting the main communication.",
-}
-
-SLOWNICZEK_EN = {
-    "discover": (
-        "Google Discover",
-        "A personalised content stream in the Google app and on the Google home page on mobile. "
-        "It shows users articles matched to their interests before they type anything into the search engine. "
-        "Impressions are the number of times the material was displayed in this stream, and clicks are the number "
-        "of visits to the page with the material.",
-    ),
-    "wyniki": (
-        "Google Search results",
-        "Organic (non-advertising) results that Google displays in response to a typed query. "
-        "Impressions are the number of times a link to the material was displayed in search results, "
-        "and clicks are the number of visits to the page with the material from those results.",
-    ),
-    "ai": (
-        "Generative AI",
-        "Answers created by artificial intelligence directly in Google Search "
-        "(e.g. AI summaries above search results) in which the content is used as a source "
-        "and linked. The value is the number of times the material was displayed in such answers.",
-    ),
 }
 
 # ------------------------------------------------------------
@@ -594,15 +611,15 @@ except Exception:
     _COOKIE_SECRET = st.secrets["google_oauth"]["client_secret"]   # zapasowo
 
 
-def _b64(b: bytes) -> str:
+def _b64(b):
     return base64.urlsafe_b64encode(b).decode().rstrip("=")
 
 
-def _unb64(s: str) -> bytes:
+def _unb64(s):
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def _podpis(payload: str) -> str:
+def _podpis(payload):
     return hmac.new(_COOKIE_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
@@ -756,6 +773,14 @@ if "osoba" not in st.session_state:
 if "bez_osoby" not in st.session_state:
     st.session_state["bez_osoby"] = False
 
+# Domyślne (edytowalne) teksty słowniczka
+for _lang, _slownik in SLOWNICZEK_WG_JEZYKA.items():
+    for _p in SL_ID:
+        if sl_key(_p, _lang, "t") not in st.session_state:
+            st.session_state[sl_key(_p, _lang, "t")] = _slownik[_p][0]
+        if sl_key(_p, _lang, "d") not in st.session_state:
+            st.session_state[sl_key(_p, _lang, "d")] = _slownik[_p][1]
+
 # ============================================================
 # PARSOWANIE PDF Z GOOGLE ANALYTICS
 # ============================================================
@@ -789,7 +814,7 @@ def get_period(text):
     return re.sub(r"\s+", " ", d).strip()
 
 
-# Miesiące PL (różne formy) -> EN, do tłumaczenia pola „Okres kampanii” w wersji angielskiej
+# Miesiące PL -> EN: tłumaczenie pola „Okres kampanii” w wersji angielskiej
 MIESIACE_EN = {
     "stycznia": "January", "styczeń": "January", "lutego": "February", "luty": "February",
     "marca": "March", "marzec": "March", "kwietnia": "April", "kwiecień": "April",
@@ -864,7 +889,7 @@ if st.session_state.get("_brak_pdf"):
 # ============================================================
 with st.expander("📄 Eksport i import danych raportu (CSV)"):
     st.caption("Pobierz dane raportu do pliku CSV, popraw je w Excelu lub Arkuszach Google (zmieniaj tylko kolumnę "
-               "„wartosc”), a potem wczytaj z powrotem. CSV nie zawiera grafik ani logo klienta.")
+               "„wartosc”), a potem wczytaj z powrotem. CSV nie zawiera grafik, logo klienta ani edytowanego słowniczka.")
     nazwa_csv = re.sub(r"[^\w\-]+", "_", str(st.session_state.get("firma", "")).strip()) or "raport"
     st.download_button(
         "⬇️ Pobierz dane raportu (CSV)",
@@ -1049,28 +1074,41 @@ img_li = st.file_uploader("Dodaj grafiki (LinkedIn)", type=["png", "jpg", "jpeg"
 uklad_li = st.radio("Układ grafik:", UKLAD, horizontal=True, key="u5")
 st.markdown("---")
 
-# --- SŁOWNICZEK ---
+# --- SŁOWNICZEK (edytowalny) ---
 st.markdown("#### Słowniczek pojęć")
 slowniczek_wlaczony = st.checkbox(
     "Dodaj słowniczek pojęć na końcu raportu",
     value=True,
     key="slowniczek",
     help="Słowniczek zawiera tylko te pojęcia, których dotyczą wypełnione pola: Google Discover, "
-         "wyniki wyszukiwania w Google, generatywna AI. Treść definicji edytujesz w słownikach SLOWNICZEK "
-         "i SLOWNICZEK_EN na górze pliku.",
+         "wyniki wyszukiwania w Google, generatywna AI. Poniżej możesz edytować tytuły i treść definicji.",
 )
-_widoczne_pojecia = []
-if str(g_disc_odslony).strip() or str(g_disc_klik).strip():
-    _widoczne_pojecia.append(SLOWNICZEK["discover"][0])
-if str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip():
-    _widoczne_pojecia.append(SLOWNICZEK["wyniki"][0])
-if str(g_ai).strip():
-    _widoczne_pojecia.append(SLOWNICZEK["ai"][0])
+
+_pojecie_uzyte = {
+    "discover": bool(str(g_disc_odslony).strip() or str(g_disc_klik).strip()),
+    "wyniki": bool(str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip()),
+    "ai": bool(str(g_ai).strip()),
+}
+
 if slowniczek_wlaczony:
-    if _widoczne_pojecia:
-        st.caption("W raporcie pojawią się definicje: " + "; ".join(_widoczne_pojecia) + ".")
+    _widoczne = [st.session_state[sl_key(p, LANG, "t")] for p in SL_ID if _pojecie_uzyte[p]]
+    if _widoczne:
+        st.caption("W raporcie pojawią się definicje: " + "; ".join(_widoczne) + ".")
     else:
         st.caption("Żadne z powiązanych pól nie jest wypełnione, więc słowniczek nie pojawi się w raporcie.")
+
+    with st.expander(f"✏️ Edytuj słowniczek (język raportu: {wybor_jezyka})"):
+        st.caption("Zmiany dotyczą bieżącego raportu i wybranego języka. Pojęcie bez wypełnionych pól "
+                   "nie trafi do raportu, nawet jeśli jest tu edytowane. Pusta definicja = pojęcie pominięte. "
+                   "Adresy zaczynające się od https:// lub www. będą klikalne.")
+        for p in SL_ID:
+            nota = "" if _pojecie_uzyte[p] else "  *(nie pojawi się: brak danych w powiązanych polach)*"
+            st.markdown(f"**{SLOWNICZEK_WG_JEZYKA[LANG][p][0]}**{nota}")
+            st.text_input("Tytuł pojęcia:", key=sl_key(p, LANG, "t"))
+            st.text_area("Definicja:", key=sl_key(p, LANG, "d"), height=120)
+            st.markdown("---")
+        st.button("↩️ Przywróć domyślne teksty słowniczka",
+                  on_click=przywroc_slowniczek, args=(LANG,))
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -1091,8 +1129,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     LINKCOL = (0, 90, 200)
 
     # ---------- teksty zależne od języka ----------
-    SL = SLOWNICZEK_EN if LANG == "en" else SLOWNICZEK
-
     if LANG == "en":
         if NAZWA_PORTALU.startswith("Portal "):
             nazwa_portalu_pdf = NAZWA_PORTALU[len("Portal "):] + " portal"
@@ -1637,15 +1673,16 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         (kpi_lab("Wyświetlenia na LinkedIn"), li_zasieg),
     ], img_li, uklad_li == UKLAD[1], links_li)
 
-    # ---------- SŁOWNICZEK POJĘĆ ----------
+    # ---------- SŁOWNICZEK POJĘĆ (z edytowalnych pól) ----------
     if slowniczek_wlaczony:
         wpisy_slowniczka = []
-        if str(g_disc_odslony).strip() or str(g_disc_klik).strip():
-            wpisy_slowniczka.append(SL["discover"])
-        if str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip():
-            wpisy_slowniczka.append(SL["wyniki"])
-        if str(g_ai).strip():
-            wpisy_slowniczka.append(SL["ai"])
+        for p in SL_ID:
+            if not _pojecie_uzyte[p]:
+                continue
+            tytul = st.session_state.get(sl_key(p, LANG, "t"), "").strip()
+            definicja = st.session_state.get(sl_key(p, LANG, "d"), "").strip()
+            if tytul and definicja:
+                wpisy_slowniczka.append((tytul, definicja))
         render_slowniczek(wpisy_slowniczka)
 
     # ---------- KARTA KONTAKTOWA ----------
