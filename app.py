@@ -1,11 +1,17 @@
 import streamlit as st
 from streamlit_oauth import OAuth2Component
+from streamlit_cookies_controller import CookieController
 import requests
 from fpdf import FPDF
 import csv
 import io
 import os
 import re
+import time
+import json
+import hmac
+import hashlib
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from html import unescape
@@ -18,7 +24,6 @@ from streamlit_pdf_viewer import pdf_viewer
 # ============================================================
 st.set_page_config(page_title="Generator Raportów", page_icon="📊", layout="wide")
 
-# Wstrzykiwany CSS - czerwona ramka dla pustych pól (z ukrytym placeholderem)
 st.markdown("""
 <style>
 /* Obramowanie dla niewypełnionych pól tekstowych */
@@ -35,12 +40,10 @@ font_file = "DejaVuSans.ttf"
 font_bold_file = "DejaVuSans-Bold.ttf"
 
 # ------------------------------------------------------------
-# OSOBY KONTAKTOWE (lista rozwijana "Dla kogo przygotowujesz raport")
-# Pola każdej osoby: email, telefon, telefon_kom (opcjonalnie), stanowisko (opcjonalnie)
+# OSOBY KONTAKTOWE
 # ------------------------------------------------------------
 BRAK_OSOBY = "— wybierz osobę —"
 
-# Lista ogólna: używana dla wersji raportu, które nie mają własnej listy poniżej
 OSOBY = {
     "Ewa Zuchora": {
         "email": "ewa.zuchora@budujemydom.pl", "telefon": "668 04 54 77",
@@ -80,7 +83,6 @@ OSOBY = {
     },
 }
 
-# Osobne listy dla wybranych wersji raportu (klucz = nazwa wersji z MOTYWY)
 OSOBY_WG_MOTYWU = {
     "AutomatykaB2B": {
         "Katarzyna Gugała": {
@@ -119,8 +121,7 @@ def osoby_dla_motywu(nazwa_motywu):
 
 
 # ------------------------------------------------------------
-# SŁOWNICZEK POJĘĆ (pokazywany na końcu raportu tylko dla wypełnionych pól)
-# Możesz dowolnie edytować treść definicji.
+# SŁOWNICZEK POJĘĆ (PL)
 # ------------------------------------------------------------
 SLOWNICZEK = {
     "discover": (
@@ -144,15 +145,81 @@ SLOWNICZEK = {
 }
 
 # ------------------------------------------------------------
-# MOTYWY: kolorystyka raportu (RGB) + dostępne logo
-#   portal - tytuł pierwszej sekcji raportu
-#   main   - górny pasek, nagłówki sekcji, ciemne kafelki, tytuły, wartości
-#   accent - paski akcentowe na kafelkach i nagłówkach
-#   light  - tło jasnych kafelków i ramek
-#   bar    - górny pasek strony
-#   line   - linia w stopce
-#   label  - małe napisy akcentowe (np. PODSUMOWANIE)
-#   loga   - {nazwa w menu: (nazwa pliku BEZ rozszerzenia, szerokość na okładce mm, szerokość na kolejnych stronach mm)}
+# JĘZYK RAPORTU (tylko treści widoczne w PDF; interfejs zostaje po polsku)
+# ------------------------------------------------------------
+JEZYKI = {"Polski": "pl", "English": "en"}
+
+TXT = {
+    "pl": {
+        "okres": "Okres", "przygotowal": "Przygotował(a)", "najwazniejsze": "Najważniejsze wyniki",
+        "podsumowanie": "PODSUMOWANIE", "kliknij": "Kliknij wybraną pozycję, aby otworzyć materiał.",
+        "slowniczek": "Słowniczek pojęć", "pytania": "MASZ PYTANIA? SKONTAKTUJ SIĘ Z MNĄ",
+        "email": "E-mail", "tel": "Tel.", "tel_kom": "Tel. kom.",
+        "data": "Data wykonania raportu", "strona": "Strona",
+        "odslony": "Odsłony", "klikniecia": "Kliknięcia",
+        "discover": "Google Discover", "wyniki": "Wyniki wyszukiwania w wyszukiwarce Google",
+        "fb": "Facebook", "li": "LinkedIn",
+    },
+    "en": {
+        "okres": "Period", "przygotowal": "Prepared by", "najwazniejsze": "Key results",
+        "podsumowanie": "SUMMARY", "kliknij": "Click an item to open the material.",
+        "slowniczek": "Glossary", "pytania": "QUESTIONS? CONTACT ME",
+        "email": "E-mail", "tel": "Phone", "tel_kom": "Mobile",
+        "data": "Report date", "strona": "Page",
+        "odslony": "Impressions", "klikniecia": "Clicks",
+        "discover": "Google Discover", "wyniki": "Google Search results",
+        "fb": "Facebook", "li": "LinkedIn",
+    },
+}
+
+# Klucze KPI zostają po polsku (używa ich CSV), tłumaczymy tylko etykiety w PDF
+KPI_EN = {
+    "Odsłony portalu": "Portal impressions",
+    "Zdarzenia na portalu": "Portal events",
+    "Zaangażowanie": "Engagement",
+    "Widoczność artykułu w serwisie": "Article visibility on the website",
+    "Odsłony w Google Discover": "Google Discover impressions",
+    "Kliknięcia z Google Discover": "Google Discover clicks",
+    "Odsłony w wyszukiwarce Google": "Google Search impressions",
+    "Kliknięcia z wyszukiwarki Google": "Google Search clicks",
+    "Generatywna AI": "Generative AI",
+    "Zasięg na Facebooku": "Facebook reach",
+    "Wyświetlenia na LinkedIn": "LinkedIn views",
+}
+STANOWISKA_EN = {"Specjalista ds. reklamy": "Advertising Specialist", "Redaktor": "Editor"}
+
+DOMYSLNE_OPISY_EN = {
+    "desc_portal": "The statistics reflect direct activity and the level of user engagement with the materials published on the portal.",
+    "desc_disc": "The data show the visibility of the article and how well the content matches readers' interests in Google Discover.",
+    "desc_wyniki": "The results show organic reach in traditional Google Search and in Generative AI modules.",
+    "desc_fb": "The summary covers the reach generated on Facebook, supporting the main communication.",
+    "desc_li": "The summary covers the reach of publications on LinkedIn, supporting the main communication.",
+}
+
+SLOWNICZEK_EN = {
+    "discover": (
+        "Google Discover",
+        "A personalised content stream in the Google app and on the Google home page on mobile. "
+        "It shows users articles matched to their interests before they type anything into the search engine. "
+        "Impressions are the number of times the material was displayed in this stream, and clicks are the number "
+        "of visits to the page with the material.",
+    ),
+    "wyniki": (
+        "Google Search results",
+        "Organic (non-advertising) results that Google displays in response to a typed query. "
+        "Impressions are the number of times a link to the material was displayed in search results, "
+        "and clicks are the number of visits to the page with the material from those results.",
+    ),
+    "ai": (
+        "Generative AI",
+        "Answers created by artificial intelligence directly in Google Search "
+        "(e.g. AI summaries above search results) in which the content is used as a source "
+        "and linked. The value is the number of times the material was displayed in such answers.",
+    ),
+}
+
+# ------------------------------------------------------------
+# MOTYWY
 # ------------------------------------------------------------
 MOTYWY = {
     "Produkty i Firmy": {
@@ -215,7 +282,6 @@ DOMYSLNE_OPISY = {
     "desc_li": "Zestawienie obejmuje zasięg publikacji w serwisie LinkedIn, wspierający główną komunikację.",
 }
 
-# Pola tekstowe zapisywane do / wczytywane z CSV: (klucz w session_state, opis dla człowieka)
 POLA_CSV = [
     ("firma", "Raport dla firmy"),
     ("okres", "Okres kampanii"),
@@ -251,6 +317,7 @@ USTAWIENIA_CSV = [
     ("kpi_wybrane", "Kafelki na okładce (rozdziel znakiem |)"),
     ("motyw", "Wersja raportu: " + " / ".join(MOTYWY.keys())),
     ("logo_wariant", "Logo (tylko budujemydom.pl): Czerwone / Szare"),
+    ("jezyk", "Język raportu: " + " / ".join(JEZYKI.keys())),
     ("u1", "Układ grafik: Portal (" + " / ".join(UKLAD) + ")"),
     ("u2", "Układ grafik: Google Discover"),
     ("u3", "Układ grafik: wyszukiwarka Google"),
@@ -268,8 +335,7 @@ def znajdz_plik(baza):
 
 
 def przygotuj_logo(sciezka):
-    """Wczytuje logo i przycina puste (białe lub przezroczyste) marginesy.
-    Zwraca (bufor PNG, proporcje wysokość/szerokość) albo (None, None)."""
+    """Wczytuje logo i przycina puste (białe lub przezroczyste) marginesy."""
     try:
         im = Image.open(sciezka).convert("RGBA")
         na_bialym = Image.alpha_composite(Image.new("RGBA", im.size, (255, 255, 255, 255)), im).convert("RGB")
@@ -287,16 +353,9 @@ def przygotuj_logo(sciezka):
 
 
 # ------------------------------------------------------------
-# LINKI: parser wklejonej listy (jeden wiersz = jeden element)
-#   - wiersz bez adresu URL            -> podtytuł
-#   - "Nazwa | https://..."            -> pozycja listy z własną nazwą
-#   - samo "https://facebook/linkedin" -> kafelek "Post N"
-#   - inny adres bez nazwy             -> pozycja listy; tytuł pobierany ze strony (jeśli domena dozwolona),
-#                                         a w razie niepowodzenia nazwa z końcówki adresu
-# Rodzaje: "post" (kafelek), "wlasna", "auto" (obie ostatnie = wiersze listy)
+# LINKI: parser wklejonej listy
 # ------------------------------------------------------------
 URL_RE = re.compile(r"https?://[^\s<>\"]+")
-# Linki w opisach i podsumowaniu (bez zmiany tekstu): http(s):// albo www.
 LINK_TEKST_RE = re.compile(r"(?:https?://|www\.)[^\s<>\"]+", re.IGNORECASE)
 SPOLECZNOSC = {"facebook.com": "fb", "fb.com": "fb", "linkedin.com": "li"}
 DOZWOLONE_HOSTY_TYTULY = ("budujemydom.pl", "budownictwob2b.pl", "instalacjeb2b.pl")
@@ -312,7 +371,6 @@ def host_dozwolony(url):
 
 
 def nazwa_z_url(url):
-    """Zapasowa nazwa z końcówki adresu: .../121153-jak-chronic-poddasze -> 'Jak chronic poddasze'."""
     path = re.sub(r"^https?://[^/]+", "", url).split("?")[0].split("#")[0]
     segs = [s for s in path.split("/") if s]
     if not segs:
@@ -388,7 +446,6 @@ def _pobierz_tytul(url):
 
 
 def pobierz_tytuly(urls):
-    """Równolegle pobiera tytuły; wyniki zapamiętuje w sesji, żeby nie pobierać ich ponownie."""
     cache = st.session_state.setdefault("_tytuly", {})
     do_pobrania = [u for u in urls if u not in cache]
     if do_pobrania:
@@ -400,7 +457,6 @@ def pobierz_tytuly(urls):
 
 
 def uzupelnij_tytuly(elementy):
-    """Dla pozycji 'auto' z dozwolonych domen podmienia nazwę z adresu na prawdziwy tytuł strony."""
     do_pobrania = [url for (typ, _l, url, rodzaj) in elementy
                    if typ == "link" and rodzaj == "auto" and host_dozwolony(url)]
     tytuly = pobierz_tytuly(do_pobrania) if do_pobrania else {}
@@ -413,10 +469,9 @@ def uzupelnij_tytuly(elementy):
 
 
 # ------------------------------------------------------------
-# CSV: eksport i import danych raportu
+# CSV: eksport i import
 # ------------------------------------------------------------
 def formatuj_liczbe(v):
-    """Excel potrafi zjeść spacje tysięcy: 23514 -> 23 514."""
     v = v.strip()
     if re.fullmatch(r"\d{4,}", v):
         return f"{int(v):,}".replace(",", " ")
@@ -480,6 +535,12 @@ def csv_import(plik):
                 zastosowano += 1
             elif val.strip():
                 pominiete.append(f"wersja raportu „{val.strip()}”")
+        elif klucz == "jezyk":
+            if val.strip() in JEZYKI:
+                st.session_state["jezyk"] = val.strip()
+                zastosowano += 1
+            elif val.strip():
+                pominiete.append(f"język „{val.strip()}”")
         elif klucz in ("logo_wariant", "osoba"):
             pass   # obsługiwane niżej, po ustaleniu motywu
         elif klucz in DOMYSLNY_UKLAD:
@@ -513,15 +574,63 @@ def csv_import(plik):
 
 # Stałe niezależne od motywu
 GREY = (100, 100, 100)
-ML = 18            # margines lewy/prawy
-W = 174            # szerokość treści (210 - 2*18)
-LIMIT = 265        # dolna granica treści (nad stopką)
-TOP2 = 32          # początek treści na stronach 2+
+ML = 18
+W = 174
+LIMIT = 265
+TOP2 = 32
 
 # ============================================================
-# LOGOWANIE OAUTH (Google Workspace)
+# LOGOWANIE OAUTH (Google Workspace) + ciasteczko na 30 dni
 # ============================================================
 DOZWOLONE_DOMENY = ("budujemydom.pl", "zielonyogrodek.pl", "ep.pl", "avt.pl", "elektronik.com.pl")
+
+COOKIE_NAME = "gen_raportow_auth"
+COOKIE_DNI = 30
+COOKIE_SEKUNDY = COOKIE_DNI * 24 * 3600
+
+try:
+    _COOKIE_SECRET = st.secrets["google_oauth"]["cookie_secret"]
+except Exception:
+    _COOKIE_SECRET = st.secrets["google_oauth"]["client_secret"]   # zapasowo
+
+
+def _b64(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+
+
+def _unb64(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _podpis(payload: str) -> str:
+    return hmac.new(_COOKIE_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def utworz_token(email, name):
+    dane = {"e": email, "n": name, "x": int(time.time()) + COOKIE_SEKUNDY}
+    payload = _b64(json.dumps(dane, ensure_ascii=False).encode("utf-8"))
+    return f"{payload}.{_podpis(payload)}"
+
+
+def sprawdz_token(token):
+    """Zwraca (email, name) przy poprawnym, nieprzeterminowanym tokenie z dozwolonej domeny; inaczej None."""
+    try:
+        payload, sig = str(token).split(".", 1)
+        if not hmac.compare_digest(sig, _podpis(payload)):
+            return None
+        dane = json.loads(_unb64(payload).decode("utf-8"))
+        if int(dane.get("x", 0)) < time.time():
+            return None
+        email = str(dane.get("e", "")).strip().lower()
+        domena = email.rsplit("@", 1)[-1] if "@" in email else ""
+        if domena not in DOZWOLONE_DOMENY:
+            return None
+        return email, str(dane.get("n", ""))
+    except Exception:
+        return None
+
+
+cookies = CookieController()
 
 oauth2 = OAuth2Component(
     client_id=st.secrets["google_oauth"]["client_id"],
@@ -533,10 +642,25 @@ oauth2 = OAuth2Component(
 )
 
 if "user_email" not in st.session_state:
-    st.title("Generator Raportów")
+    # 1) automatyczne logowanie z ciasteczka (chyba że użytkownik właśnie się wylogował)
+    if not st.session_state.get("_wylogowany"):
+        token_cookie = cookies.get(COOKIE_NAME)
+        if token_cookie:
+            ok = sprawdz_token(token_cookie)
+            if ok:
+                st.session_state.user_email, st.session_state.user_name = ok
+                st.rerun()
+        elif not st.session_state.get("_cookie_sprawdzone"):
+            # komponent ciasteczek potrzebuje chwili przy pierwszym uruchomieniu
+            st.session_state["_cookie_sprawdzone"] = True
+            time.sleep(0.5)
+            st.rerun()
 
+    # 2) zwykłe logowanie Google
+    st.title("Generator Raportów")
     st.subheader("Wymagane logowanie")
-    st.write("Aby korzystać z aplikacji, zaloguj się firmowym kontem Google.")
+    st.write("Aby korzystać z aplikacji, zaloguj się firmowym kontem Google. "
+             f"Logowanie zostanie zapamiętane w tej przeglądarce na {COOKIE_DNI} dni.")
 
     result = oauth2.authorize_button(
         name="🔐 Zaloguj przez Google",
@@ -546,13 +670,19 @@ if "user_email" not in st.session_state:
 
     if result and "token" in result:
         token = result["token"]["access_token"]
-        user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo", headers={"Authorization": f"Bearer {token}"}).json()
+        user_info = requests.get("https://www.googleapis.com/oauth2/v3/userinfo",
+                                 headers={"Authorization": f"Bearer {token}"}).json()
 
         login_email = user_info.get("email", "").strip().lower()
         domena = login_email.rsplit("@", 1)[-1] if "@" in login_email else ""
         if domena in DOZWOLONE_DOMENY and user_info.get("email_verified"):
+            nazwa_usera = user_info.get("name", "")
+            cookies.set(COOKIE_NAME, utworz_token(login_email, nazwa_usera),
+                        max_age=COOKIE_SEKUNDY, same_site="lax")
             st.session_state.user_email = login_email
-            st.session_state.user_name = user_info.get("name", "")
+            st.session_state.user_name = nazwa_usera
+            st.session_state.pop("_wylogowany", None)
+            time.sleep(1)   # czas na zapisanie ciasteczka w przeglądarce przed przeładowaniem
             st.rerun()
         else:
             st.error("Dostęp tylko dla zweryfikowanych kont firmowych z domen: "
@@ -567,8 +697,14 @@ with st.sidebar:
     st.write(f"**{st.session_state.get('user_name', email_user)}**")
     st.caption(email_user)
     if st.button("Wyloguj"):
+        try:
+            cookies.remove(COOKIE_NAME)
+        except Exception:
+            pass
         st.session_state.pop("user_email", None)
         st.session_state.pop("user_name", None)
+        st.session_state["_wylogowany"] = True
+        time.sleep(0.7)
         st.rerun()
 
 st.markdown("### Generator Raportów Zasięgowych")
@@ -583,7 +719,6 @@ for k in keys_to_init:
     if k not in st.session_state:
         st.session_state[k] = ""
 
-# Wartości domyślne widgetów, które da się ustawić z CSV (bez parametrów value= / index= / default=)
 for k, v in DOMYSLNE_OPISY.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -594,6 +729,8 @@ if "kpi_wybrane" not in st.session_state:
     st.session_state["kpi_wybrane"] = list(DOMYSLNE_KPI)
 if "motyw" not in st.session_state:
     st.session_state["motyw"] = list(MOTYWY.keys())[0]
+if "jezyk" not in st.session_state:
+    st.session_state["jezyk"] = "Polski"
 if "osoba" not in st.session_state:
     st.session_state["osoba"] = BRAK_OSOBY
 if "bez_osoby" not in st.session_state:
@@ -630,6 +767,23 @@ def get_period(text):
     d = re.sub(r"(?<=[^\W\d_])\s+(?=[^\W\d_])", "", d)
     d = re.sub(r"\s*[-–—]\s*", " - ", d)
     return re.sub(r"\s+", " ", d).strip()
+
+
+# Miesiące PL (różne formy) -> EN, do tłumaczenia pola „Okres kampanii” w wersji angielskiej
+MIESIACE_EN = {
+    "stycznia": "January", "styczeń": "January", "lutego": "February", "luty": "February",
+    "marca": "March", "marzec": "March", "kwietnia": "April", "kwiecień": "April",
+    "maja": "May", "maj": "May", "czerwca": "June", "czerwiec": "June",
+    "lipca": "July", "lipiec": "July", "sierpnia": "August", "sierpień": "August",
+    "września": "September", "wrzesień": "September", "października": "October", "październik": "October",
+    "listopada": "November", "listopad": "November", "grudnia": "December", "grudzień": "December",
+}
+
+
+def okres_en(txt):
+    def zamien(m):
+        return MIESIACE_EN.get(m.group(0).lower(), m.group(0))
+    return re.sub(r"[^\W\d_]+", zamien, txt)
 
 
 st.info("💡 Możesz zautomatyzować wpisywanie danych, wgrywając poniżej surowy raport PDF z Google Analytics. System sam wyciągnie z niego liczby i daty.")
@@ -709,7 +863,7 @@ with st.expander("📄 Eksport i import danych raportu (CSV)"):
 st.markdown("---")
 
 # ============================================================
-# WYGLĄD RAPORTU (kolorystyka + logo)
+# WYGLĄD RAPORTU (kolorystyka + logo + język)
 # ============================================================
 st.markdown("#### Wygląd raportu")
 wybor_motywu = st.radio("Wersja raportu (kolorystyka):", list(MOTYWY.keys()), horizontal=True, key="motyw")
@@ -722,6 +876,14 @@ else:
     wybor_logo = list(loga.keys())[0]
 logo_baza, w_cover, w_small = loga[wybor_logo]
 
+wybor_jezyka = st.radio(
+    "Język raportu (PDF):", list(JEZYKI.keys()), horizontal=True, key="jezyk",
+    help="Zmienia stałe teksty raportu (nagłówki, etykiety, słowniczek, stopka, domyślne opisy sekcji). "
+         "Teksty wpisane ręcznie (komentarz, własne opisy, nazwy linków, nazwa firmy) wpisz od razu w wybranym języku.",
+)
+LANG = JEZYKI[wybor_jezyka]
+T = TXT[LANG]
+
 logo_raport = znajdz_plik(logo_baza)
 if logo_raport is None:
     st.warning(f"Nie znaleziono pliku logo „{logo_baza}” (.png/.jpg). "
@@ -731,7 +893,6 @@ if logo_raport is None:
 if logo_raport:
     st.image(logo_raport, width=170)
 
-# Logo przycięte z pustych marginesów (używane w PDF)
 logo_buf, logo_ratio = przygotuj_logo(logo_raport) if logo_raport else (None, None)
 
 MAIN = motyw["main"]
@@ -749,7 +910,6 @@ st.markdown("---")
 # ============================================================
 col_firma1, col_firma2, col_firma3 = st.columns([2, 2, 1.5])
 with col_firma1:
-    # Dodany placeholder=" " uaktywnia ramkę CSS, gdy pole jest puste
     firma = st.text_input("Raport dla firmy:", key="firma", placeholder=" ")
 with col_firma2:
     okres = st.text_input("Okres kampanii:", key="okres", placeholder=" ")
@@ -758,7 +918,6 @@ with col_firma3:
 
 st.markdown("#### Osoba kontaktowa w raporcie")
 dostepne_osoby = osoby_dla_motywu(wybor_motywu)
-# Jeśli wybrana wcześniej osoba nie występuje na liście tej wersji raportu, wracamy do pustego wyboru
 if st.session_state.get("osoba") not in ([BRAK_OSOBY] + list(dostepne_osoby.keys())):
     st.session_state["osoba"] = BRAK_OSOBY
 
@@ -800,7 +959,6 @@ kpi_wybrane = st.multiselect(
 )
 POMOC_TEKST = ("Adresy zaczynające się od https://, http:// lub www. są klikalne i zostają w takiej postaci, "
                "w jakiej je wpiszesz.")
-# Komentarz jest opcjonalny, brak atrybutu placeholder=" " uchroni go przed czerwoną ramką
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90, help=POMOC_TEKST)
 
 st.markdown("---")
@@ -878,7 +1036,8 @@ slowniczek_wlaczony = st.checkbox(
     value=True,
     key="slowniczek",
     help="Słowniczek zawiera tylko te pojęcia, których dotyczą wypełnione pola: Google Discover, "
-         "wyniki wyszukiwania w Google, generatywna AI. Treść definicji edytujesz w słowniku SLOWNICZEK na górze pliku.",
+         "wyniki wyszukiwania w Google, generatywna AI. Treść definicji edytujesz w słownikach SLOWNICZEK "
+         "i SLOWNICZEK_EN na górze pliku.",
 )
 _widoczne_pojecia = []
 if str(g_disc_odslony).strip() or str(g_disc_klik).strip():
@@ -909,7 +1068,31 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         st.stop()
 
     FONT = 'DejaVu'
-    LINKCOL = (0, 90, 200)   # kolor klikalnych linków w opisach
+    LINKCOL = (0, 90, 200)
+
+    # ---------- teksty zależne od języka ----------
+    SL = SLOWNICZEK_EN if LANG == "en" else SLOWNICZEK
+
+    if LANG == "en":
+        if NAZWA_PORTALU.startswith("Portal "):
+            nazwa_portalu_pdf = NAZWA_PORTALU[len("Portal "):] + " portal"
+        else:
+            nazwa_portalu_pdf = NAZWA_PORTALU
+        okres_pdf = okres_en(okres)
+        stanowisko_pdf = STANOWISKA_EN.get(stanowisko, stanowisko)
+    else:
+        nazwa_portalu_pdf = NAZWA_PORTALU
+        okres_pdf = okres
+        stanowisko_pdf = stanowisko
+
+    def opis_pdf(klucz, wartosc):
+        """Nieedytowany opis domyślny -> wersja angielska; własny tekst zostaje bez zmian."""
+        if LANG == "en" and wartosc.strip() == DOMYSLNE_OPISY[klucz]:
+            return DOMYSLNE_OPISY_EN[klucz]
+        return wartosc
+
+    def kpi_lab(n):
+        return KPI_EN.get(n, n) if LANG == "en" else n
 
     class ReportPDF(FPDF):
         firma_txt = ""
@@ -949,13 +1132,13 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             self.set_xy(ML, 274)
             self.multi_cell(100, 4.5, self.stopka_txt, align='L')
             self.set_xy(ML + W - 70, 274)
-            self.cell(70, 4.5, f"Data wykonania raportu: {self.data_txt}", align='R')
+            self.cell(70, 4.5, f"{T['data']}: {self.data_txt}", align='R')
             self.set_xy(ML + W - 70, 278.5)
-            self.cell(70, 4.5, f"Strona {self.page_no()}/{{nb}}", align='R')
+            self.cell(70, 4.5, f"{T['strona']} {self.page_no()}/{{nb}}", align='R')
 
     pdf = ReportPDF()
     pdf.firma_txt = firma
-    pdf.okres_txt = okres
+    pdf.okres_txt = okres_pdf
     pdf.data_txt = data_raportu.strftime('%d.%m.%Y')
     pdf.alias_nb_pages()
     pdf.set_margins(ML, 10, ML)
@@ -971,9 +1154,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         if pdf.get_y() + h > LIMIT:
             new_page()
 
-    # ---------- tekst z klikalnymi linkami (adresy zostają bez zmian) ----------
+    # ---------- tekst z klikalnymi linkami ----------
     def rich_pieces(raw):
-        """Dzieli słowo na kawałki (tekst, url): adres staje się klikalny, reszta zostaje zwykłym tekstem."""
         m = LINK_TEKST_RE.search(raw)
         if not m:
             return [(raw, None)]
@@ -993,7 +1175,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         return out
 
     def wrap_rich(txt, width, size=9.5):
-        """Zawija tekst; zwraca listę wierszy, każdy to lista (tekst, url). Długie adresy łamie w razie potrzeby."""
         pdf.set_font(FONT, '', size)
         maxw = width - 1
 
@@ -1055,7 +1236,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.c_margin = old_margin
 
     def draw_rich_lines(lines, x, lh, size, color):
-        """Rysuje wiersze, przechodząc na nową stronę, gdy brakuje miejsca."""
         for segs in lines:
             ensure_space(lh)
             y = pdf.get_y()
@@ -1111,7 +1291,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.set_y(y + ch + 4)
 
     def draw_link_chips(run):
-        """Posty z Facebooka / LinkedIna: równe, klikalne kafelki 'Post N', zawijane do nowego rzędu."""
         ch, gap_x, gap_y, pad = 6.5, 3, 2.5, 4
         ensure_space(ch + 3)
         x = ML
@@ -1139,7 +1318,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(y + ch + 3)
 
     def draw_link_list(run):
-        """Artykuły i inne materiały: lista, jeden klikalny wiersz na pozycję, na pełną szerokość."""
         maxw = W - 12
         for (_t, lab, url, _r) in run:
             ensure_space(7)
@@ -1191,7 +1369,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_xy(ML + 1, y)
         pdf.set_font(FONT, '', 8)
         pdf.set_text_color(150, 150, 150)
-        pdf.cell(W - 2, 5, "Kliknij wybraną pozycję, aby otworzyć materiał.")
+        pdf.cell(W - 2, 5, T["kliknij"])
         pdf.set_y(y + 7)
 
     def place_row(items, col_w, centers, max_h):
@@ -1282,10 +1460,8 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(pdf.get_y() + 8)
 
     def render_slowniczek(wpisy):
-        """Słowniczek pojęć: nagłówek w stylu sekcji + lista (termin pogrubiony, pod nim definicja)."""
         if not wpisy:
             return
-        # nagłówek razem z pierwszym wpisem nie zostaje sam na dole strony
         pierwsze_linie = len(wrap_rich(wpisy[0][1], W - 2, 9.5))
         ensure_space(13 + 7 + min(pierwsze_linie, 3) * 4.8)
 
@@ -1297,7 +1473,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_xy(ML + 7, y)
         pdf.set_font(FONT, 'B', 12)
         pdf.set_text_color(255, 255, 255)
-        pdf.cell(W - 10, 9, "Słowniczek pojęć")
+        pdf.cell(W - 10, 9, T["slowniczek"])
         pdf.set_y(y + 13)
 
         for termin, definicja in wpisy:
@@ -1318,7 +1494,6 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     # ---------- STRONA TYTUŁOWA ----------
     pdf.add_page()
 
-    # Wysokość logo raportu (po przycięciu marginesów) -> oś, na której ląduje logo klienta
     pf_h = w_cover * logo_ratio if logo_ratio else 11.0
     pf_top, pf_bottom = 12, 12 + pf_h
     cy = pf_top + pf_h / 2
@@ -1349,11 +1524,11 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.multi_cell(90, 7, firma.strip(), align='R')
         right_bottom = max(pf_bottom, pdf.get_y())
 
-    if okres.strip():
+    if okres_pdf.strip():
         pdf.set_xy(ML, right_bottom + 2.5)
         pdf.set_font(FONT, '', 10)
         pdf.set_text_color(140, 140, 140)
-        pdf.cell(W, 5, f"Okres: {okres.strip()}", align='R')
+        pdf.cell(W, 5, f"{T['okres']}: {okres_pdf.strip()}", align='R')
         right_bottom = right_bottom + 2.5 + 5
 
     y = right_bottom + 6
@@ -1364,9 +1539,9 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
 
     meta_txt = ""
     if autor.strip():
-        meta_txt = f"Przygotował(a): {autor.strip()}"
-        if stanowisko.strip():
-            meta_txt += f", {stanowisko.strip()}"
+        meta_txt = f"{T['przygotowal']}: {autor.strip()}"
+        if stanowisko_pdf.strip():
+            meta_txt += f", {stanowisko_pdf.strip()}"
 
     if meta_txt:
         pdf.set_xy(ML, y + 3)
@@ -1386,12 +1561,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         "Generatywna AI": g_ai, "Zasięg na Facebooku": fb_zasieg,
         "Wyświetlenia na LinkedIn": li_zasieg,
     }
-    kpi_cover = [(n, str(wartosci[n]).strip()) for n in kpi_wybrane if str(wartosci.get(n, "")).strip()]
+    kpi_cover = [(kpi_lab(n), str(wartosci[n]).strip()) for n in kpi_wybrane if str(wartosci.get(n, "")).strip()]
     if kpi_cover:
         pdf.set_font(FONT, 'B', 11)
         pdf.set_text_color(*MAIN)
         pdf.set_x(ML)
-        pdf.cell(W, 6, "Najważniejsze wyniki")
+        pdf.cell(W, 6, T["najwazniejsze"])
         pdf.set_y(pdf.get_y() + 9)
         draw_cards(kpi_cover, dark=True)
 
@@ -1407,7 +1582,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_xy(ML + 7, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*LABEL)
-        pdf.cell(60, 4, "PODSUMOWANIE")
+        pdf.cell(60, 4, T["podsumowanie"])
         for i, segs in enumerate(lines_p):
             if segs:
                 draw_rich_line(segs, ML + 7, y + 9 + i * 5, 5, 10, (70, 70, 70))
@@ -1416,52 +1591,52 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     pdf.set_y(pdf.get_y() + 6)
 
     # ---------- SEKCJE ----------
-    render_section(NAZWA_PORTALU, desc_portal, [
-        ("Zdarzenia na portalu", zdarzenia),
-        ("Odsłony", odslony),
-        ("Zaangażowanie", zaangazowanie),
-        ("Widoczność artykułu w serwisie", zajawka),
+    render_section(nazwa_portalu_pdf, opis_pdf("desc_portal", desc_portal), [
+        (kpi_lab("Zdarzenia na portalu"), zdarzenia),
+        (T["odslony"], odslony),
+        (kpi_lab("Zaangażowanie"), zaangazowanie),
+        (kpi_lab("Widoczność artykułu w serwisie"), zajawka),
     ], img_portal, uklad_portal == UKLAD[1], links_portal)
 
-    render_section("Google Discover", desc_disc, [
-        ("Odsłony", g_disc_odslony),
-        ("Kliknięcia", g_disc_klik),
+    render_section(T["discover"], opis_pdf("desc_disc", desc_disc), [
+        (T["odslony"], g_disc_odslony),
+        (T["klikniecia"], g_disc_klik),
     ], img_disc, uklad_disc == UKLAD[1], links_disc)
 
-    render_section("Wyniki wyszukiwania w wyszukiwarce Google", desc_wyniki, [
-        ("Odsłony", g_wyniki_odslony),
-        ("Kliknięcia", g_wyniki_klik),
-        ("Generatywna AI", g_ai),
+    render_section(T["wyniki"], opis_pdf("desc_wyniki", desc_wyniki), [
+        (T["odslony"], g_wyniki_odslony),
+        (T["klikniecia"], g_wyniki_klik),
+        (kpi_lab("Generatywna AI"), g_ai),
     ], img_wyniki, uklad_wyniki == UKLAD[1], links_wyniki)
 
-    render_section("Facebook", desc_fb, [
-        ("Zasięg na Facebooku", fb_zasieg),
+    render_section(T["fb"], opis_pdf("desc_fb", desc_fb), [
+        (kpi_lab("Zasięg na Facebooku"), fb_zasieg),
     ], img_fb, uklad_fb == UKLAD[1], links_fb)
 
-    render_section("LinkedIn", desc_li, [
-        ("Wyświetlenia na LinkedIn", li_zasieg),
+    render_section(T["li"], opis_pdf("desc_li", desc_li), [
+        (kpi_lab("Wyświetlenia na LinkedIn"), li_zasieg),
     ], img_li, uklad_li == UKLAD[1], links_li)
 
-    # ---------- SŁOWNICZEK POJĘĆ (tylko dla wypełnionych pól) ----------
+    # ---------- SŁOWNICZEK POJĘĆ ----------
     if slowniczek_wlaczony:
         wpisy_slowniczka = []
         if str(g_disc_odslony).strip() or str(g_disc_klik).strip():
-            wpisy_slowniczka.append(SLOWNICZEK["discover"])
+            wpisy_slowniczka.append(SL["discover"])
         if str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip():
-            wpisy_slowniczka.append(SLOWNICZEK["wyniki"])
+            wpisy_slowniczka.append(SL["wyniki"])
         if str(g_ai).strip():
-            wpisy_slowniczka.append(SLOWNICZEK["ai"])
+            wpisy_slowniczka.append(SL["ai"])
         render_slowniczek(wpisy_slowniczka)
 
-    # ---------- KARTA KONTAKTOWA (pomijana, gdy brak osoby kontaktowej) ----------
+    # ---------- KARTA KONTAKTOWA ----------
     if autor.strip() or email.strip() or telefon.strip() or telefon_kom.strip():
         czesci_kontaktu = []
         if email.strip():
-            czesci_kontaktu.append(f"E-mail: {email.strip()}")
+            czesci_kontaktu.append(f"{T['email']}: {email.strip()}")
         if telefon.strip():
-            czesci_kontaktu.append(f"Tel.: {telefon.strip()}")
+            czesci_kontaktu.append(f"{T['tel']}: {telefon.strip()}")
         if telefon_kom.strip():
-            czesci_kontaktu.append(f"Tel. kom.: {telefon_kom.strip()}")
+            czesci_kontaktu.append(f"{T['tel_kom']}: {telefon_kom.strip()}")
 
         separator = "      "
         pdf.set_font(FONT, '', 9.5)
@@ -1471,17 +1646,15 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             if pdf.get_string_width(jedna_linia) <= W - 14:
                 linie_kontaktu = [jedna_linia]
             else:
-                # e-mail w pierwszej linii, telefony w drugiej
-                mail_czesci = [c for c in czesci_kontaktu if c.startswith("E-mail")]
-                tel_czesci = [c for c in czesci_kontaktu if not c.startswith("E-mail")]
+                mail_czesci = [c for c in czesci_kontaktu if c.startswith(T["email"])]
+                tel_czesci = [c for c in czesci_kontaktu if not c.startswith(T["email"])]
                 linie_kontaktu = [x for x in [separator.join(mail_czesci), separator.join(tel_czesci)] if x]
 
-        # pozycje elementów karty (względem jej górnej krawędzi)
         kursor = 9.5
         if autor.strip():
             kursor = 17.0
         stanowisko_y = None
-        if stanowisko.strip():
+        if stanowisko_pdf.strip():
             stanowisko_y = kursor
             kursor += 6.5
         kontakt_y = kursor
@@ -1496,7 +1669,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_xy(ML + 8, y + 3.5)
         pdf.set_font(FONT, 'B', 8.5)
         pdf.set_text_color(*LABEL)
-        pdf.cell(W - 12, 4, "MASZ PYTANIA? SKONTAKTUJ SIĘ Z MNĄ")
+        pdf.cell(W - 12, 4, T["pytania"])
         if autor.strip():
             pdf.set_xy(ML + 8, y + 9.5)
             pdf.set_font(FONT, 'B', 13)
@@ -1506,7 +1679,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
             pdf.set_xy(ML + 8, y + stanowisko_y)
             pdf.set_font(FONT, '', 10)
             pdf.set_text_color(*GREY)
-            pdf.cell(W - 12, 5, stanowisko.strip())
+            pdf.cell(W - 12, 5, stanowisko_pdf.strip())
         for i, linia in enumerate(linie_kontaktu):
             pdf.set_xy(ML + 8, y + kontakt_y + i * 5.5)
             pdf.set_font(FONT, '', 9.5)
@@ -1527,7 +1700,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         st.download_button(
             label="Pobierz Raport PDF 📥",
             data=pdf_bytes,
-            file_name=f"Raport_{nazwa_pliku}.pdf",
+            file_name=f"Raport_{nazwa_pliku}{'_EN' if LANG == 'en' else ''}.pdf",
             mime="application/pdf",
             use_container_width=True
         )
