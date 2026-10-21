@@ -6,3 +6,4 @@ streamlit-pdf-viewer
 PyPDF2
 streamlit-oauth
 httpx
+streamlit-cookies-controller
