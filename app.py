@@ -124,6 +124,14 @@ def osoby_dla_motywu(nazwa_motywu):
 # SŁOWNICZEK POJĘĆ: domyślne teksty (PL i EN); w formularzu można je edytować
 # ------------------------------------------------------------
 SLOWNICZEK = {
+    "portal": (
+        "Odsłony portalu",
+        "Łączna liczba wyświetleń treści powiązanych z daną firmą na portalu, obejmujących jej profil, "
+        "produkty, artykuły, prezentacje firmowe oraz pozostałe materiały uwzględnione w raporcie. "
+        "Przy każdym materiale powiązanym z firmą, w prawej kolumnie strony, widoczne są jej logo oraz "
+        "komplet danych firmowych. Dzięki temu każda odsłona publikacji zapewnia dodatkową ekspozycję marki "
+        "i ułatwia klientom dotarcie do informacji o przedsiębiorstwie.",
+    ),
     "discover": (
         "Google Discover",
         "Spersonalizowany strumień treści w aplikacji Google i na stronie głównej Google w telefonie. "
@@ -145,6 +153,15 @@ SLOWNICZEK = {
 }
 
 SLOWNICZEK_EN = {
+    "portal": (
+        "Portal impressions",
+        "The total number of views of content associated with a given company on the portal, including "
+        "its profile, products, articles, company presentations and other materials included in the report. "
+        "Next to each material associated with the company, in the right-hand column of the page, the "
+        "company's logo and full company details are displayed. As a result, every view of a publication "
+        "provides additional brand exposure and makes it easier for customers to find information about "
+        "the company.",
+    ),
     "discover": (
         "Google Discover",
         "A personalised content stream in the Google app and on the Google home page on mobile. "
@@ -166,7 +183,7 @@ SLOWNICZEK_EN = {
     ),
 }
 
-SL_ID = ["discover", "wyniki", "ai"]
+SL_ID = ["portal", "discover", "wyniki", "ai"]
 SLOWNICZEK_WG_JEZYKA = {"pl": SLOWNICZEK, "en": SLOWNICZEK_EN}
 
 
@@ -1085,6 +1102,7 @@ slowniczek_wlaczony = st.checkbox(
 )
 
 _pojecie_uzyte = {
+    "portal": bool(wybor_motywu in ("AutomatykaB2B", "ElektronikaB2B") and str(odslony).strip()),
     "discover": bool(str(g_disc_odslony).strip() or str(g_disc_klik).strip()),
     "wyniki": bool(str(g_wyniki_odslony).strip() or str(g_wyniki_klik).strip()),
     "ai": bool(str(g_ai).strip()),
@@ -1102,7 +1120,7 @@ if slowniczek_wlaczony:
                    "nie trafi do raportu, nawet jeśli jest tu edytowane. Pusta definicja = pojęcie pominięte. "
                    "Adresy zaczynające się od https:// lub www. będą klikalne.")
         for p in SL_ID:
-            nota = "" if _pojecie_uzyte[p] else "  *(nie pojawi się: brak danych w powiązanych polach)*"
+            nota = "" if _pojecie_uzyte[p] else "  *(nie pojawi się: brak danych w powiązanych polach lub inna wersja raportu)*"
             st.markdown(f"**{SLOWNICZEK_WG_JEZYKA[LANG][p][0]}**{nota}")
             st.text_input("Tytuł pojęcia:", key=sl_key(p, LANG, "t"))
             st.text_area("Definicja:", key=sl_key(p, LANG, "d"), height=120)
