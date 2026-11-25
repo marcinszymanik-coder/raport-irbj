@@ -71,7 +71,7 @@ OSOBY = {
     },
     "Izabela Konikowska": {
         "email": "izabela.konikowska@budujemydom.pl", "telefon": "507 970 743",
-        "stanowisko": "Specjalista ds. reklamy",
+        "stanowisko": "Szef Działu Marketingu i Reklamy",
     },
     "Tomasz Celmer": {
         "email": "tomasz.celmer@elektronik.com.pl",
