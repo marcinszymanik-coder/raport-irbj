@@ -477,6 +477,8 @@ def _pobierz_tytul(url):
                          r"|instalacje\s*b2b|instalacjeb2b\.pl|produkty\s+i\s+firmy)")
         t = re.sub(r"\s*[\|–—-]\s*" + nazwy_serwisu + r"(?:\s*[\|–—-].*)?\s*$", "", t, flags=re.I)
         return t.strip()
+    except Exception:
+        return ""
 
 
 def pobierz_tytuly(urls):
