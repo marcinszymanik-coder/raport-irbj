@@ -472,11 +472,11 @@ def _pobierz_tytul(url):
         if not m:
             return ""
         t = unescape(re.sub(r"\s+", " ", m.group(1))).strip()
-        t = re.split(r"\s+[\|–—]\s+", t)[0]
-        t = re.sub(r"\s+-\s+(budujemydom\.pl|Budujemy Dom|budownictwob2b\.pl|Budownictwo B2B).*$", "", t, flags=re.I)
+        # Odetnij tylko końcówkę z nazwą serwisu (po |, –, — lub -), a nie całą treść po myślniku
+        nazwy_serwisu = (r"(?:budujemydom\.pl|budujemy\s*dom|budownictwo\s*b2b|budownictwob2b\.pl"
+                         r"|instalacje\s*b2b|instalacjeb2b\.pl|produkty\s+i\s+firmy)")
+        t = re.sub(r"\s*[\|–—-]\s*" + nazwy_serwisu + r"(?:\s*[\|–—-].*)?\s*$", "", t, flags=re.I)
         return t.strip()
-    except Exception:
-        return ""
 
 
 def pobierz_tytuly(urls):
