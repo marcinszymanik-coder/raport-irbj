@@ -18,6 +18,7 @@ from html import unescape
 import PyPDF2
 from PIL import Image, ImageChops
 from streamlit_pdf_viewer import pdf_viewer
+from streamlit_sortables import sort_items
 
 # ============================================================
 # USTAWIENIA
@@ -1021,6 +1022,12 @@ kpi_wybrane = st.multiselect(
     KPI_OPTIONS,
     key="kpi_wybrane",
 )
+if len(kpi_wybrane) > 1:
+    st.caption("Przeciągnij kafelki, aby zmienić kolejność:")
+    posortowane = sort_items(kpi_wybrane, key="kpi_sort_" + "|".join(kpi_wybrane))
+    if posortowane != kpi_wybrane:
+        st.session_state["kpi_wybrane"] = posortowane
+        st.rerun()
 POMOC_TEKST = ("Adresy zaczynające się od https://, http:// lub www. są klikalne i zostają w takiej postaci, "
                "w jakiej je wpiszesz.")
 podsumowanie = st.text_area("Komentarz / podsumowanie do raportu (opcjonalnie):", key="podsumowanie", height=90, help=POMOC_TEKST)
