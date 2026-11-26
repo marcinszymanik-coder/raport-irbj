@@ -125,7 +125,7 @@ def osoby_dla_motywu(nazwa_motywu):
 # ------------------------------------------------------------
 SLOWNICZEK = {
     "portal": (
-        "Odsłony portalu",
+        "Odsłony artykułów",
         "Łączna liczba wyświetleń treści powiązanych z daną firmą na portalu, obejmujących jej profil, "
         "produkty, artykuły, prezentacje firmowe oraz pozostałe materiały uwzględnione w raporcie. "
         "Przy każdym materiale powiązanym z firmą, w prawej kolumnie strony, widoczne są jej logo oraz "
@@ -212,7 +212,7 @@ TXT = {
         "slowniczek": "Słowniczek pojęć", "pytania": "MASZ PYTANIA? SKONTAKTUJ SIĘ Z MNĄ",
         "email": "E-mail", "tel": "Tel.", "tel_kom": "Tel. kom.",
         "data": "Data wykonania raportu", "strona": "Strona",
-        "odslony": "Odsłony", "klikniecia": "Kliknięcia",
+        "odslony": "Odsłony artykułów", "klikniecia": "Kliknięcia",
         "discover": "Google Discover", "wyniki": "Wyniki wyszukiwania w wyszukiwarce Google",
         "fb": "Facebook", "li": "LinkedIn",
     },
@@ -230,7 +230,7 @@ TXT = {
 
 # Klucze KPI zostają po polsku (używa ich CSV), tłumaczymy tylko etykiety w PDF
 KPI_EN = {
-    "Odsłony portalu": "Portal impressions",
+    "Odsłony artykułów": "Portal impressions",
     "Zdarzenia na portalu": "Portal events",
     "Zaangażowanie": "Engagement",
     "Widoczność artykułu w serwisie": "Article visibility on the website",
@@ -301,15 +301,15 @@ MOTYWY = {
 
 UKLAD = ["1 w rzędzie", "2 kolumny"]
 KPI_OPTIONS = [
-    "Odsłony portalu", "Zdarzenia na portalu", "Zaangażowanie", "Widoczność artykułu w serwisie",
+    "Odsłony artykułów", "Zdarzenia na portalu", "Zaangażowanie", "Widoczność artykułu w serwisie",
     "Odsłony w Google Discover", "Kliknięcia z Google Discover",
     "Odsłony w wyszukiwarce Google", "Kliknięcia z wyszukiwarki Google",
     "Generatywna AI", "Zasięg na Facebooku", "Wyświetlenia na LinkedIn",
 ]
-DOMYSLNE_KPI = ["Odsłony portalu", "Odsłony w wyszukiwarce Google", "Odsłony w Google Discover", "Zaangażowanie"]
+DOMYSLNE_KPI = ["Odsłony artykułów", "Odsłony w wyszukiwarce Google", "Odsłony w Google Discover", "Zaangażowanie"]
 DOMYSLNY_UKLAD = {"u1": UKLAD[0], "u2": UKLAD[0], "u3": UKLAD[0], "u4": UKLAD[1], "u5": UKLAD[0]}
 DOMYSLNE_OPISY = {
-    "desc_portal": "Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w materiały opublikowane na portalu.",
+    "desc_portal": "Statystyki odzwierciedlają bezpośrednią aktywność oraz poziom zaangażowania użytkowników w Państwa materiałach opublikowanych na portalu.",
     "desc_disc": "Dane obrazują widoczność artykułu i trafność dopasowania treści do czytelników w kanale Google Discover.",
     "desc_wyniki": "Wyniki przedstawiają zasięg organiczny w tradycyjnej wyszukiwarce Google oraz w modułach Generatywnej AI.",
     "desc_fb": "Zestawienie obejmuje zasięg wygenerowany w serwisie Facebook, wspierający główną komunikację.",
@@ -320,7 +320,7 @@ POLA_CSV = [
     ("firma", "Raport dla firmy"),
     ("okres", "Okres kampanii"),
     ("zdarzenia", "Portal: liczba zdarzeń"),
-    ("odslony", "Portal: odsłony"),
+    ("odslony", "Portal: odsłony artykułów"),
     ("zaangazowanie", "Portal: zaangażowanie"),
     ("zajawka", "Portal: widoczność artykułu w serwisie"),
     ("g_disc_odslony", "Google Discover: odsłony"),
@@ -1629,7 +1629,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
         pdf.set_y(y + 6)
 
     wartosci = {
-        "Odsłony portalu": odslony, "Zdarzenia na portalu": zdarzenia,
+        "Odsłony artykułów": odslony, "Zdarzenia na portalu": zdarzenia,
         "Zaangażowanie": zaangazowanie, "Widoczność artykułu w serwisie": zajawka,
         "Odsłony w Google Discover": g_disc_odslony, "Kliknięcia z Google Discover": g_disc_klik,
         "Odsłony w wyszukiwarce Google": g_wyniki_odslony,
