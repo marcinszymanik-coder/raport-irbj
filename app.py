@@ -1017,6 +1017,11 @@ else:
 
 st.markdown("---")
 st.subheader("Strona tytułowa: podsumowanie")
+
+# zastosuj nową kolejność PRZED utworzeniem widgetu
+if "_kpi_pending" in st.session_state:
+    st.session_state["kpi_wybrane"] = st.session_state.pop("_kpi_pending")
+
 kpi_wybrane = st.multiselect(
     "Kafelki z najważniejszymi wynikami na pierwszej stronie (zalecane 3–4; puste wartości są pomijane):",
     KPI_OPTIONS,
@@ -1026,7 +1031,7 @@ if len(kpi_wybrane) > 1:
     st.caption("Przeciągnij kafelki, aby zmienić kolejność:")
     posortowane = sort_items(kpi_wybrane, key="kpi_sort_" + "|".join(kpi_wybrane))
     if posortowane != kpi_wybrane:
-        st.session_state["kpi_wybrane"] = posortowane
+        st.session_state["_kpi_pending"] = posortowane
         st.rerun()
 POMOC_TEKST = ("Adresy zaczynające się od https://, http:// lub www. są klikalne i zostają w takiej postaci, "
                "w jakiej je wpiszesz.")
