@@ -213,7 +213,7 @@ TXT = {
         "slowniczek": "Słowniczek pojęć", "pytania": "MASZ PYTANIA? SKONTAKTUJ SIĘ Z MNĄ",
         "email": "E-mail", "tel": "Tel.", "tel_kom": "Tel. kom.",
         "data": "Data wykonania raportu", "strona": "Strona",
-        "odslony": "Odsłony artykułów", "klikniecia": "Kliknięcia",
+        "odslony": "Odsłony artykułów", "odslony_g": "Odsłony", "klikniecia": "Kliknięcia",
         "discover": "Google Discover", "wyniki": "Wyniki wyszukiwania w wyszukiwarce Google",
         "fb": "Facebook", "li": "LinkedIn",
     },
@@ -1687,12 +1687,12 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     ], img_portal, uklad_portal == UKLAD[1], links_portal)
 
     render_section(T["discover"], opis_pdf("desc_disc", desc_disc), [
-        (T["odslony"], g_disc_odslony),
+        (T["odslony_g"], g_disc_odslony),
         (T["klikniecia"], g_disc_klik),
     ], img_disc, uklad_disc == UKLAD[1], links_disc)
 
     render_section(T["wyniki"], opis_pdf("desc_wyniki", desc_wyniki), [
-        (T["odslony"], g_wyniki_odslony),
+        T["odslony_g"], g_wyniki_odslony),
         (T["klikniecia"], g_wyniki_klik),
         (kpi_lab("Generatywna AI"), g_ai),
     ], img_wyniki, uklad_wyniki == UKLAD[1], links_wyniki)
