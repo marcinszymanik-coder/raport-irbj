@@ -7,8 +7,4 @@ PyPDF2
 streamlit-oauth
 httpx
 streamlit-cookies-controller
-from streamlit_sortables import sort_items
-posortowane = sort_items(kpi_wybrane)
-if posortowane != kpi_wybrane:
-    st.session_state["kpi_wybrane"] = posortowane
-    st.rerun()
+streamlit-sortables
