@@ -1692,7 +1692,7 @@ if st.button("Generuj nowoczesny PDF z grafikami", type="primary", use_container
     ], img_disc, uklad_disc == UKLAD[1], links_disc)
 
     render_section(T["wyniki"], opis_pdf("desc_wyniki", desc_wyniki), [
-        T["odslony_g"], g_wyniki_odslony),
+        (T["odslony_g"], g_wyniki_odslony),
         (T["klikniecia"], g_wyniki_klik),
         (kpi_lab("Generatywna AI"), g_ai),
     ], img_wyniki, uklad_wyniki == UKLAD[1], links_wyniki)
